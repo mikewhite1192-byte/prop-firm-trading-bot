@@ -2,5 +2,6 @@
 # and `lumibot.brokers.Tradovate`. We only ship brokers here that Lumibot does not
 # cover natively.
 from trading_bot.brokers.oanda_lumibot import OandaBroker
+from trading_bot.brokers import balances  # noqa: F401 — registers balance fetchers
 
 __all__ = ["OandaBroker"]

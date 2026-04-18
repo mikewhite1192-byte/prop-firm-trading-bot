@@ -39,6 +39,7 @@ from trading_bot.learning import (
     month_3_decision,
     promotion_decision,
 )
+from trading_bot.risk.broker_pool import BrokerPool
 from trading_bot.config import get_settings
 from trading_bot.risk.rules import MODE_RULES
 
@@ -1115,6 +1116,57 @@ if dormant:
         "</div>",
         unsafe_allow_html=True,
     )
+
+# --- pool exposure per broker ---
+if accounts:
+    st.markdown("## Broker-pool exposure")
+    st.markdown(
+        f'<div style="color:{TEXT_MUTED}; font-family:Inter; font-size:0.76rem; margin-bottom:10px;">'
+        "Combined risk + notional across strategies sharing one real broker account. "
+        "Risk engine uses this to cap aggregate exposure — shrinks position size if the real "
+        "account can't take it.</div>",
+        unsafe_allow_html=True,
+    )
+
+    firms = sorted({a["firm"] for a in accounts})
+    pool_cols = st.columns(len(firms))
+    for col, firm in zip(pool_cols, firms):
+        snap = BrokerPool(firm).snapshot()
+        real_eq = f"${snap.real_equity:,.0f}" if snap.real_equity is not None else "—"
+        real_bp = f"${snap.real_buying_power:,.0f}" if snap.real_buying_power is not None else "—"
+        risk = f"${snap.committed_risk:,.2f}"
+        notional = f"${snap.open_notional:,.2f}"
+        # Risk utilization (committed / real equity)
+        util = (
+            float(snap.committed_risk / snap.real_equity)
+            if snap.real_equity and snap.real_equity > 0
+            else 0
+        )
+        util_cls = "pos" if util < 0.02 else "neg" if util > 0.04 else ""
+        with col:
+            col.markdown(
+                f"""
+                <div class="stat">
+                    <div class="lbl">{firm} · {snap.member_count} strategies</div>
+                    <div class="big">{real_eq}</div>
+                    <div class="sub">buying power {real_bp}</div>
+                    <div style="margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:8px; font-family:'JetBrains Mono', monospace; font-size:0.74rem;">
+                        <div>
+                            <div style="color:{TEXT_MUTED}; font-size:0.6rem; letter-spacing:0.12em; text-transform:uppercase; font-family:Inter; font-weight:700;">Committed Risk</div>
+                            <div style="color:{TEXT};" class="{util_cls}">{risk}</div>
+                        </div>
+                        <div>
+                            <div style="color:{TEXT_MUTED}; font-size:0.6rem; letter-spacing:0.12em; text-transform:uppercase; font-family:Inter; font-weight:700;">Open Notional</div>
+                            <div style="color:{TEXT};">{notional}</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:10px; color:{TEXT_MUTED}; font-size:0.68rem; font-family:Inter;">
+                        {snap.open_trades} open position{'s' if snap.open_trades != 1 else ''}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 # --- tabs ---
 tab_equity, tab_attr, tab_bt, tab_news, tab_trades, tab_cull = st.tabs(

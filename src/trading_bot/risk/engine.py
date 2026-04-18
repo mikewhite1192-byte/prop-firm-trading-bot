@@ -19,6 +19,7 @@ from trading_bot.db.models import (
     StrategyDailyPnL,
     Trade,
 )
+from trading_bot.risk.broker_pool import BrokerPool, PoolSnapshot
 from trading_bot.risk.rules import FIRM_RULES, MODE_RULES, FirmRules, ModeRules
 
 log = logging.getLogger(__name__)
@@ -70,6 +71,15 @@ class RiskEngine:
 
     def __init__(self, session_factory: SessionFactory | None = None) -> None:
         self._session_factory = session_factory
+        # pool_cache is keyed by firm; created lazily on first check.
+        self._pool_cache: dict[str, BrokerPool] = {}
+
+    def _pool(self, firm: str) -> BrokerPool:
+        if firm not in self._pool_cache:
+            self._pool_cache[firm] = BrokerPool(
+                firm=firm, session_factory=self._session_factory
+            )
+        return self._pool_cache[firm]
 
     def evaluate(self, intent: TradeIntent) -> RiskDecision:
         mode_rules = MODE_RULES[intent.account.mode.value]
@@ -111,6 +121,20 @@ class RiskEngine:
         if news_decision is not None:
             return news_decision
 
+        # Pool check is last: we may still shrink here if the real broker's
+        # aggregate exposure is tight. Done after all per-strategy rules
+        # so the shrink is as large as possible before bumping into the
+        # shared-account ceiling.
+        pool_shrunk = self._fit_to_pool(intent, mode_rules)
+        if pool_shrunk is not None:
+            if pool_shrunk == Decimal("0"):
+                return RiskDecision(
+                    approved=False,
+                    reason=f"broker pool for {intent.account.firm} has no room "
+                    "(real account buying power or risk budget exhausted)",
+                )
+            intent.quantity = pool_shrunk
+
         return RiskDecision(approved=True, adjusted_quantity=intent.quantity)
 
     # --- individual rule checks ---
@@ -134,6 +158,86 @@ class RiskEngine:
                 f"max ${max_risk_dollar:.2f} ({mode.max_risk_per_trade_pct:.2%})",
             )
         return None
+
+    def _fit_to_pool(self, intent: TradeIntent, mode: ModeRules) -> Decimal | None:
+        """Aggregate pool check: shrink qty so combined risk + notional across
+        all strategies sharing this broker fit the real account's capacity.
+
+        Returns the adjusted quantity (possibly unchanged), ``Decimal("0")``
+        if no positive qty fits, or ``None`` if no adjustment was needed
+        (or the pool's real balance is unknown — e.g. during a backtest).
+        """
+        if self._session_factory is None:
+            return None
+        try:
+            snap = self._pool(intent.account.firm).snapshot(
+                exclude_account_id=intent.account.id
+            )
+        except Exception as e:
+            log.warning("broker pool snapshot failed: %s", e)
+            return None
+
+        if snap.real_equity is None and snap.real_buying_power is None:
+            return None  # backtest or creds offline — no pool check
+
+        distance = abs(intent.entry_price - intent.stop_loss)
+        entry = intent.entry_price
+        if distance <= 0 or entry <= 0 or intent.quantity <= 0:
+            return None
+
+        current_risk = distance * intent.quantity
+        current_notional = entry * intent.quantity
+
+        # Cap total pool risk at a fraction of real equity. Use the daily-loss
+        # hard stop as a sane aggregate ceiling: if we risk more than
+        # real_equity * hard_stop, a single bad day can blow the real account.
+        max_pool_risk = (
+            snap.real_equity * mode.max_daily_loss_hard_pct
+            if snap.real_equity is not None
+            else None
+        )
+
+        max_qty_by_risk = None
+        if max_pool_risk is not None:
+            remaining_risk = max_pool_risk - snap.committed_risk
+            if remaining_risk <= 0:
+                return Decimal("0")
+            max_qty_by_risk = (remaining_risk / distance).quantize(
+                Decimal("0.0001"), rounding=ROUND_DOWN
+            )
+
+        max_qty_by_bp = None
+        if snap.real_buying_power is not None:
+            remaining_bp = snap.real_buying_power - snap.open_notional
+            if remaining_bp <= 0:
+                return Decimal("0")
+            max_qty_by_bp = (remaining_bp / entry).quantize(
+                Decimal("0.0001"), rounding=ROUND_DOWN
+            )
+
+        candidates = [q for q in (max_qty_by_risk, max_qty_by_bp) if q is not None]
+        if not candidates:
+            return None
+        pool_max = min(candidates)
+
+        if pool_max >= intent.quantity:
+            return None  # fits as-is
+
+        if pool_max <= 0:
+            return Decimal("0")
+
+        log.info(
+            "pool: %s shrinking qty %s -> %s (real_eq=%s, real_bp=%s, "
+            "committed_risk=%s, open_notional=%s)",
+            intent.account.firm,
+            intent.quantity,
+            pool_max,
+            snap.real_equity,
+            snap.real_buying_power,
+            snap.committed_risk,
+            snap.open_notional,
+        )
+        return pool_max
 
     @staticmethod
     def _fit_quantity(intent: TradeIntent, mode: ModeRules) -> Decimal | None:
