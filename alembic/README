@@ -1,0 +1,8 @@
+Generate the baseline migration from the models once DB+deps are installed:
+
+  alembic revision --autogenerate -m "baseline schema"
+  alembic upgrade head
+
+Then seed the 6 paper accounts:
+
+  python scripts/init_db.py
