@@ -38,7 +38,26 @@ from trading_bot.learning import (
     month_3_decision,
     promotion_decision,
 )
+from trading_bot.config import get_settings
 from trading_bot.risk.rules import MODE_RULES
+
+
+def _broker_configured(firm: str) -> bool:
+    """True if the .env has real credentials for this account's firm."""
+    s = get_settings()
+    if firm == "Alpaca_Paper":
+        return bool(s.alpaca_api_key and s.alpaca_api_secret)
+    if firm == "OANDA_Demo":
+        return bool(s.oanda_api_token and s.oanda_account_id)
+    if firm == "Tradovate_Sim":
+        return bool(
+            s.tradovate_username
+            and s.tradovate_password
+            and s.tradovate_client_id
+            and s.tradovate_client_secret
+        )
+    # Unknown firm — default to showing it (don't hide real live/funded accounts)
+    return True
 
 st.set_page_config(
     page_title="Trading Desk",
@@ -868,7 +887,12 @@ def heatmap_by_hour_dow(strategy_name: str) -> go.Figure:
 # PAGE
 # ==========================================================================
 
-accounts = _accounts()
+all_accounts = _accounts()
+# Only show accounts whose broker creds are configured.
+# The rest stay seeded in the DB — they'll appear automatically once you
+# drop OANDA / Tradovate keys into .env.
+accounts = [a for a in all_accounts if _broker_configured(a["firm"])]
+dormant = [a for a in all_accounts if not _broker_configured(a["firm"])]
 trades = _recent_trades(500)
 runs = _backtest_runs(20)
 news = _news()
@@ -1022,26 +1046,45 @@ def account_row(a: dict) -> str:
     </tr>
     """
 
-rows_html = "".join(account_row(a) for a in accounts)
-st.markdown(
-    f"""
-    <table class="acct-table">
-        <thead>
-            <tr>
-                <th>Strategy</th>
-                <th>Mode</th>
-                <th class="num">NAV</th>
-                <th class="num">Day P&amp;L</th>
-                <th class="num">Week P&amp;L</th>
-                <th class="num">Daily Loss · Cap</th>
-                <th class="num">Drawdown · Cap</th>
-            </tr>
-        </thead>
-        <tbody>{rows_html}</tbody>
-    </table>
-    """,
-    unsafe_allow_html=True,
-)
+rows_html = "".join(account_row(a) for a in accounts) if accounts else ""
+if accounts:
+    st.markdown(
+        f"""
+        <table class="acct-table">
+            <thead>
+                <tr>
+                    <th>Strategy</th>
+                    <th>Mode</th>
+                    <th class="num">NAV</th>
+                    <th class="num">Day P&amp;L</th>
+                    <th class="num">Week P&amp;L</th>
+                    <th class="num">Daily Loss · Cap</th>
+                    <th class="num">Drawdown · Cap</th>
+                </tr>
+            </thead>
+            <tbody>{rows_html}</tbody>
+        </table>
+        """,
+        unsafe_allow_html=True,
+    )
+else:
+    st.markdown(
+        '<div class="empty">No broker credentials configured yet. '
+        'Add <code>ALPACA_API_KEY</code>, <code>OANDA_API_TOKEN</code>, or '
+        '<code>TRADOVATE_*</code> to <code>.env</code> and refresh.</div>',
+        unsafe_allow_html=True,
+    )
+
+if dormant:
+    firms = sorted({a["firm"] for a in dormant})
+    st.markdown(
+        f'<div style="color:{TEXT_MUTED}; font-family:Inter; font-size:0.72rem; '
+        f'letter-spacing:0.08em; margin-top:10px; text-align:right;">'
+        f"{len(dormant)} dormant account{'s' if len(dormant) != 1 else ''} hidden · "
+        f"add credentials for {', '.join(firms)} to activate"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
 # --- tabs ---
 tab_equity, tab_attr, tab_bt, tab_news, tab_trades, tab_cull = st.tabs(
