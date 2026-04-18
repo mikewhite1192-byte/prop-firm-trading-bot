@@ -1,26 +1,33 @@
 [project]
 name = "trading-bot"
 version = "0.1.0"
-description = "Automated prop firm trading system — 6 concurrent strategies across paper and funded accounts"
+description = "Automated prop firm trading system — 6 Lumibot strategies across paper and funded accounts"
 requires-python = ">=3.11"
 readme = "README.md"
 dependencies = [
+    # Core framework
+    "lumibot>=4.4",
+    # Broker SDKs — Lumibot pulls alpaca-py as a transitive dep but we
+    # pin it here too so upgrades are deliberate.
+    "alpaca-py>=0.30",
+    # OANDA is not native to Lumibot; we ship a custom broker on top of oandapyV20.
+    "oandapyV20>=0.7",
+    # Persistence
     "SQLAlchemy>=2.0",
     "psycopg[binary]>=3.1",
     "alembic>=1.13",
+    # Config / runtime
     "python-dotenv>=1.0",
     "pydantic>=2.6",
     "pydantic-settings>=2.2",
-    "APScheduler>=3.10",
-    "httpx>=0.27",
-    "websockets>=12.0",
-    "alpaca-py>=0.20",
-    "pandas>=2.2",
-    "numpy>=1.26",
     "pytz>=2024.1",
     "structlog>=24.1",
+    # Analytics / dashboard
+    "pandas>=2.2",
+    "numpy>=1.26",
     "streamlit>=1.33",
-    "python-telegram-bot>=21.0",
+    # Notifications
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
@@ -30,16 +37,14 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.9",
 ]
-backtest = [
-    "vectorbt>=0.26",
-    "backtrader>=1.9",
-]
 mt5 = [
+    # Windows-only; Phase 5+.
     "MetaTrader5>=5.0",
 ]
-
-[project.scripts]
-trading-bot = "trading_bot.main:main"
+rithmic = [
+    # Phase 5+.
+    "async_rithmic>=1.0",
+]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

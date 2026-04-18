@@ -1,26 +1,179 @@
+"""Strategy 6 — BTC Bollinger Band mean reversion on 4H.
+
+Logic adapted from lhandal/crypto-trading-bot
+(https://github.com/lhandal/crypto-trading-bot, 310 stars, FreqTrade).
+Ported to Lumibot + Alpaca crypto, timeframe pushed from 1H to 4H,
+daily 200-MA and ADX(14) range filters added per spec.
+
+Entry: 4H close below lower BB(20,2), RSI(14) < 30,
+       daily close > 200-MA, ADX(14) < 25 (range regime)
+Exit:  scale at mid-band, scale again at upper band
+Stop:  1.5x ATR(14) below entry
+Broker: Alpaca crypto.  Challenge target: FTMO crypto CFD.
+"""
+
 from __future__ import annotations
 
-from datetime import datetime
+from decimal import Decimal
 
-from trading_bot.strategies.base import Strategy, StrategySignal
+import numpy as np
+import pandas as pd
+from lumibot.entities import Asset
+
+from trading_bot.brokers.base_types import OrderSide
+from trading_bot.strategies.base import RiskGatedStrategy
 
 
-class BBBTCStrategy(Strategy):
-    """Strategy 6 — BTC Bollinger Band mean reversion on 4H.
+class BBBTC4H(RiskGatedStrategy):
+    firm = "Alpaca_Paper"
+    strategy_name = "BB_BTC_4H"
 
-    Entry: 4H close below lower 20-period BB, RSI(14) < 30, daily still
-           above 200-MA, ADX < 25 (range regime).
-    Exit:  scale at mid-band, scale again at upper band.
-    Stop:  1.5x ATR below entry.
-    Cadence: every 4H bar close.
-    Broker: Alpaca crypto. Challenge target: FTMO crypto CFD.
-    """
+    parameters = {
+        "base": "BTC",
+        "quote": "USD",
+        "bb_period": 20,
+        "bb_stddev": 2.0,
+        "rsi_period": 14,
+        "rsi_long_threshold": 30,
+        "daily_trend_period": 200,
+        "adx_period": 14,
+        "adx_range_max": 25,
+        "atr_period": 14,
+        "atr_stop_multiple": 1.5,
+        "risk_per_trade_pct": 0.0075,
+    }
 
-    name = "BB_BTC_4H"
-    asset = "BTC/USD"
-    timeframe = "4H"
+    def initialize(self, parameters: dict | None = None) -> None:
+        super().initialize(parameters)
+        self.sleeptime = "60M"  # evaluate hourly; entry condition fires on 4H close
+        self._asset = Asset(
+            symbol=self.parameters["base"],
+            asset_type=Asset.AssetType.CRYPTO,
+        )
+        self._quote = Asset(
+            symbol=self.parameters["quote"],
+            asset_type=Asset.AssetType.FOREX,  # Lumibot treats USD as forex quote
+        )
 
-    async def check(self, now: datetime) -> StrategySignal | None:
-        # TODO Phase 2: pull 4H candles from Alpaca crypto, compute BB(20)/RSI(14)/ADX(14),
-        # check daily 200-MA regime, emit signal on lower band break.
-        return None
+    def on_trading_iteration(self) -> None:
+        if self.get_position(self._asset):
+            self._maybe_scale_exit()
+            return
+
+        h4 = self.get_historical_prices(
+            self._asset,
+            length=self.parameters["bb_period"] + 60,
+            timestep="240 minutes",
+            quote=self._quote,
+        )
+        daily = self.get_historical_prices(
+            self._asset,
+            length=self.parameters["daily_trend_period"] + 10,
+            timestep="day",
+            quote=self._quote,
+        )
+        if not _have_bars(h4, self.parameters["bb_period"]) or not _have_bars(
+            daily, self.parameters["daily_trend_period"]
+        ):
+            return
+
+        close4 = h4.df["close"]
+        mid = close4.rolling(self.parameters["bb_period"]).mean()
+        std = close4.rolling(self.parameters["bb_period"]).std()
+        lower = mid - self.parameters["bb_stddev"] * std
+        rsi = _rsi(close4, self.parameters["rsi_period"]).iloc[-1]
+        adx = _adx(h4.df, self.parameters["adx_period"]).iloc[-1]
+        atr = _atr(h4.df, self.parameters["atr_period"]).iloc[-1]
+        sma_daily = daily.df["close"].rolling(self.parameters["daily_trend_period"]).mean().iloc[-1]
+
+        last4 = close4.iloc[-1]
+        last_daily = daily.df["close"].iloc[-1]
+        if any(np.isnan(x) for x in (rsi, adx, atr, sma_daily, lower.iloc[-1])):
+            return
+        if last_daily <= sma_daily:
+            return  # daily trend filter — long bias only
+        if adx >= self.parameters["adx_range_max"]:
+            return  # trending regime
+
+        if last4 > lower.iloc[-1]:
+            return
+        if rsi >= self.parameters["rsi_long_threshold"]:
+            return
+
+        entry = Decimal(str(last4))
+        stop = entry - Decimal(str(atr * self.parameters["atr_stop_multiple"]))
+        qty = self._position_size(entry, stop)
+        if qty <= 0:
+            return
+
+        self.propose_entry(
+            asset=self._asset,
+            side=OrderSide.BUY,
+            quantity=qty,
+            entry_price=entry,
+            stop_loss=stop,
+            reason=f"4H close {last4:.2f} < lower BB {lower.iloc[-1]:.2f}, "
+            f"RSI={rsi:.1f}, ADX={adx:.1f}, daily>SMA200",
+        )
+
+    def _maybe_scale_exit(self) -> None:
+        # Phase 2: implement two-leg scale at mid-band and upper band.
+        h4 = self.get_historical_prices(
+            self._asset,
+            length=self.parameters["bb_period"] + 5,
+            timestep="240 minutes",
+            quote=self._quote,
+        )
+        if not _have_bars(h4, self.parameters["bb_period"]):
+            return
+        close4 = h4.df["close"]
+        mid = close4.rolling(self.parameters["bb_period"]).mean().iloc[-1]
+        if np.isnan(mid):
+            return
+        if close4.iloc[-1] >= mid:
+            self.sell_all(cancel_open_orders=True)
+            self.log_message(f"EXIT BB_BTC_4H — close {close4.iloc[-1]:.2f} >= mid {mid:.2f}")
+
+    def _position_size(self, entry: Decimal, stop: Decimal) -> Decimal:
+        risk_dollar = Decimal(str(self.portfolio_value)) * Decimal(
+            str(self.parameters["risk_per_trade_pct"])
+        )
+        distance = abs(entry - stop)
+        if distance == 0:
+            return Decimal("0")
+        return (risk_dollar / distance).quantize(Decimal("0.0001"))
+
+
+def _have_bars(bars, min_len: int) -> bool:
+    return bars is not None and bars.df is not None and len(bars.df) >= min_len
+
+
+def _rsi(close: pd.Series, period: int) -> pd.Series:
+    delta = close.diff()
+    gain = delta.clip(lower=0).ewm(alpha=1 / period, adjust=False).mean()
+    loss = (-delta.clip(upper=0)).ewm(alpha=1 / period, adjust=False).mean()
+    rs = gain / loss.replace(0, np.nan)
+    return 100 - (100 / (1 + rs))
+
+
+def _atr(df: pd.DataFrame, period: int) -> pd.Series:
+    high, low, close = df["high"], df["low"], df["close"]
+    prev = close.shift(1)
+    tr = pd.concat([(high - low), (high - prev).abs(), (low - prev).abs()], axis=1).max(axis=1)
+    return tr.rolling(period).mean()
+
+
+def _adx(df: pd.DataFrame, period: int) -> pd.Series:
+    high, low, close = df["high"], df["low"], df["close"]
+    up = high.diff()
+    dn = -low.diff()
+    plus_dm = np.where((up > dn) & (up > 0), up, 0.0)
+    minus_dm = np.where((dn > up) & (dn > 0), dn, 0.0)
+    tr = pd.concat(
+        [(high - low), (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1
+    ).max(axis=1)
+    atr = tr.ewm(alpha=1 / period, adjust=False).mean()
+    plus_di = 100 * pd.Series(plus_dm, index=df.index).ewm(alpha=1 / period, adjust=False).mean() / atr
+    minus_di = 100 * pd.Series(minus_dm, index=df.index).ewm(alpha=1 / period, adjust=False).mean() / atr
+    dx = ((plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)) * 100
+    return dx.ewm(alpha=1 / period, adjust=False).mean()

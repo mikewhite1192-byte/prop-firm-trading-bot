@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from trading_bot.brokers.base import OrderSide
+from trading_bot.brokers.base_types import OrderSide
 from trading_bot.db.models import Account, AccountMode, AccountStatus
 from trading_bot.risk.rules import FIRM_RULES, MODE_RULES, FirmRules, ModeRules
 

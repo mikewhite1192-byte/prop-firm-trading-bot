@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from trading_bot.brokers.base import OrderSide
+from trading_bot.brokers.base_types import OrderSide
 from trading_bot.db.models import Account, AccountMode, AccountStatus
 from trading_bot.risk import RiskEngine, TradeIntent
 
@@ -75,7 +75,6 @@ def test_hard_stops_on_daily_loss_hard_threshold():
 
 
 def test_funded_mode_uses_tighter_daily_limits():
-    # Funded halts at 2% loss; $2500 loss = 2.5% > halt threshold.
     acct = _account(mode=AccountMode.FUNDED, daily_pnl=Decimal("-2500"))
     intent = _intent(acct, entry=Decimal("4500"), stop=Decimal("4499.9"))
     decision = RiskEngine().evaluate(intent)

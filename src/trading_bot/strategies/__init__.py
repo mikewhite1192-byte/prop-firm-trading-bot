@@ -1,3 +1,3 @@
-from trading_bot.strategies.base import Strategy, StrategySignal
+from trading_bot.strategies.base import RiskGatedStrategy
 
-__all__ = ["Strategy", "StrategySignal"]
+__all__ = ["RiskGatedStrategy"]
