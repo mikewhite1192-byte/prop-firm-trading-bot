@@ -525,7 +525,7 @@ st.html(
         display: inline-block;
         white-space: nowrap;
         padding: 12px 0;
-        animation: scroll-tape 180s linear infinite;
+        animation: scroll-tape 420s linear infinite;
         font-family: 'Inter', sans-serif;
         font-size: 0.84rem;
     }}
