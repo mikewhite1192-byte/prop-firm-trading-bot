@@ -62,12 +62,10 @@ WARN = "#ffb020"
 
 # ---- css -----------------------------------------------------------------
 
-st.markdown(
+st.html(
     f"""
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
     :root {{
         --bg: {BG};
         --bg-deep: {BG_DEEP};
@@ -448,8 +446,7 @@ st.markdown(
     }}
 
     </style>
-    """,
-    unsafe_allow_html=True,
+    """
 )
 
 # ---- data ----------------------------------------------------------------
