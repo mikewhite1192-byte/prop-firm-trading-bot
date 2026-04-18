@@ -112,7 +112,11 @@ class Account(Base):
 class Trade(Base):
     __tablename__ = "trades"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer(), "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
     account_id: Mapped[int] = mapped_column(
         ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False, index=True
     )
@@ -147,7 +151,11 @@ class NewsWindow(Base):
 
     __tablename__ = "news_windows"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer(), "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
     event: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     currency: Mapped[str] = mapped_column(String(8), nullable=False)
     impact: Mapped[str] = mapped_column(String(16), nullable=False)  # HIGH, MEDIUM, LOW
@@ -171,7 +179,11 @@ class StrategyDailyPnL(Base):
 
     __tablename__ = "strategy_daily_pnl"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer(), "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
     firm: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     strategy_name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     trade_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
@@ -199,7 +211,11 @@ class StrategyPerformanceDaily(Base):
 
     __tablename__ = "strategy_performance_daily"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer(), "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
     strategy_name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     firm: Mapped[str] = mapped_column(String(64), nullable=False)
     as_of_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
@@ -238,7 +254,11 @@ class BacktestRun(Base):
 
     __tablename__ = "backtest_runs"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer(), "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
     strategy_name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     data_source: Mapped[str] = mapped_column(String(64), nullable=False)  # yahoo, polygon, etc.
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
@@ -262,7 +282,11 @@ class BacktestRun(Base):
 class DailySummary(Base):
     __tablename__ = "daily_summary"
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer(), "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
     account_id: Mapped[int] = mapped_column(
         ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False, index=True
     )

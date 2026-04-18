@@ -57,9 +57,24 @@ def test_approves_trade_within_risk_budget():
     assert decision.approved
 
 
-def test_rejects_when_per_trade_risk_exceeds_budget():
+def test_shrinks_oversized_quantity_to_fit_budget():
+    # Challenge 0.75% of $100k = $750. Distance 100 * qty 10 = $1000 of risk.
+    # Engine should shrink qty so the risk fits under the cap.
     acct = _account(mode=AccountMode.CHALLENGE)
     intent = _intent(acct, entry=Decimal("4500"), stop=Decimal("4400"), qty=Decimal("10"))
+    decision = RiskEngine().evaluate(intent)
+    assert decision.approved
+    assert decision.adjusted_quantity is not None
+    assert decision.adjusted_quantity < Decimal("10")
+    # risk after shrink should be under the cap.
+    assert (Decimal("100") * decision.adjusted_quantity) <= Decimal("750")
+
+
+def test_rejects_when_no_positive_qty_fits():
+    # Tiny account ($0.01) + wide absolute distance — even 0.0001 units
+    # overshoots the budget, so shrink returns 0 and the engine rejects.
+    acct = _account(mode=AccountMode.CHALLENGE, current_balance=Decimal("0.01"))
+    intent = _intent(acct, entry=Decimal("100"), stop=Decimal("0"), qty=Decimal("1"))
     decision = RiskEngine().evaluate(intent)
     assert not decision.approved
     assert "per-trade risk" in decision.reason

@@ -176,6 +176,16 @@ class RiskGatedStrategy(Strategy):
         )
         account = self._load_account()
 
+        # Use Lumibot's clock — during backtests this is the simulated time,
+        # during live runs it's real-time. Using datetime.now() here would
+        # make every backtest see wall-clock today, false-positive on weekend_flat.
+        try:
+            intent_now = self.get_datetime()
+        except Exception:
+            intent_now = datetime.now(timezone.utc)
+        if intent_now.tzinfo is None:
+            intent_now = intent_now.replace(tzinfo=timezone.utc)
+
         intent = TradeIntent(
             account=account,
             strategy_name=self.strategy_name,
@@ -185,7 +195,7 @@ class RiskGatedStrategy(Strategy):
             entry_price=entry_price,
             stop_loss=stop_loss,
             take_profit=take_profit,
-            now=datetime.now(timezone.utc),
+            now=intent_now,
         )
         decision = self._risk_engine.evaluate(intent)
         if not decision.approved:

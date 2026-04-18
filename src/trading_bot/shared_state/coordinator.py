@@ -114,24 +114,28 @@ def register_strategy_trade(
     """
     from decimal import Decimal
 
+    from trading_bot.db.models import StrategyDailyPnL
+
+    delta = Decimal(str(pnl))
+    day = trade_date.date()
     with get_session() as s:
-        s.execute(
-            text(
-                """
-                INSERT INTO strategy_daily_pnl (firm, strategy_name, trade_date, pnl, trade_count, updated_at)
-                VALUES (:firm, :name, :date, :pnl, :cnt, NOW())
-                ON CONFLICT (firm, strategy_name, trade_date)
-                DO UPDATE SET
-                    pnl = strategy_daily_pnl.pnl + EXCLUDED.pnl,
-                    trade_count = strategy_daily_pnl.trade_count + EXCLUDED.trade_count,
-                    updated_at = NOW()
-                """
-            ),
-            {
-                "firm": firm,
-                "name": strategy_name,
-                "date": trade_date.date(),
-                "pnl": Decimal(str(pnl)),
-                "cnt": trade_count_delta,
-            },
-        )
+        existing = s.execute(
+            select(StrategyDailyPnL).where(
+                StrategyDailyPnL.firm == firm,
+                StrategyDailyPnL.strategy_name == strategy_name,
+                StrategyDailyPnL.trade_date == day,
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            s.add(
+                StrategyDailyPnL(
+                    firm=firm,
+                    strategy_name=strategy_name,
+                    trade_date=day,
+                    pnl=delta,
+                    trade_count=trade_count_delta,
+                )
+            )
+        else:
+            existing.pnl = existing.pnl + delta
+            existing.trade_count = existing.trade_count + trade_count_delta

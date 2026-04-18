@@ -40,7 +40,7 @@ def upgrade() -> None:
     sa.UniqueConstraint('firm', 'strategy_name', name='uq_account_firm_strategy')
     )
     op.create_table('news_windows',
-    sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
+    sa.Column('id', sa.BigInteger().with_variant(sa.Integer(), 'sqlite'), autoincrement=True, nullable=False),
     sa.Column('event', sa.String(length=64), nullable=False),
     sa.Column('currency', sa.String(length=8), nullable=False),
     sa.Column('impact', sa.String(length=16), nullable=False),
@@ -54,7 +54,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_news_windows_event'), 'news_windows', ['event'], unique=False)
     op.create_index(op.f('ix_news_windows_starts_at'), 'news_windows', ['starts_at'], unique=False)
     op.create_table('strategy_daily_pnl',
-    sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
+    sa.Column('id', sa.BigInteger().with_variant(sa.Integer(), 'sqlite'), autoincrement=True, nullable=False),
     sa.Column('firm', sa.String(length=64), nullable=False),
     sa.Column('strategy_name', sa.String(length=64), nullable=False),
     sa.Column('trade_date', sa.Date(), nullable=False),
@@ -68,7 +68,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_strategy_daily_pnl_strategy_name'), 'strategy_daily_pnl', ['strategy_name'], unique=False)
     op.create_index(op.f('ix_strategy_daily_pnl_trade_date'), 'strategy_daily_pnl', ['trade_date'], unique=False)
     op.create_table('daily_summary',
-    sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
+    sa.Column('id', sa.BigInteger().with_variant(sa.Integer(), 'sqlite'), autoincrement=True, nullable=False),
     sa.Column('account_id', sa.Integer(), nullable=False),
     sa.Column('summary_date', sa.Date(), nullable=False),
     sa.Column('total_trades', sa.Integer(), nullable=False),
@@ -88,7 +88,7 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_daily_summary_account_id'), 'daily_summary', ['account_id'], unique=False)
     op.create_table('trades',
-    sa.Column('id', sa.BigInteger(), autoincrement=True, nullable=False),
+    sa.Column('id', sa.BigInteger().with_variant(sa.Integer(), 'sqlite'), autoincrement=True, nullable=False),
     sa.Column('account_id', sa.Integer(), nullable=False),
     sa.Column('strategy_name', sa.String(length=64), nullable=False),
     sa.Column('asset', sa.String(length=32), nullable=False),

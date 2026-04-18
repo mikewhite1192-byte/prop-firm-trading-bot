@@ -22,8 +22,9 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from sqlalchemy import text
+from sqlalchemy import select
 
+from trading_bot.db.models import NewsWindow
 from trading_bot.db.session import get_session
 
 logging.basicConfig(
@@ -70,28 +71,32 @@ def upsert_events(entries: list[dict], min_impact: str = "HIGH") -> int:
                 starts_at = starts_at.replace(tzinfo=timezone.utc)
             starts_at = starts_at.astimezone(timezone.utc)
             ends_at = starts_at + EVENT_DURATION
-            s.execute(
-                text(
-                    """
-                    INSERT INTO news_windows
-                        (event, currency, impact, starts_at, ends_at, source, fetched_at)
-                    VALUES
-                        (:event, :ccy, :impact, :starts_at, :ends_at, 'forexfactory', :now)
-                    ON CONFLICT (event, starts_at, currency) DO UPDATE SET
-                        ends_at = EXCLUDED.ends_at,
-                        impact = EXCLUDED.impact,
-                        fetched_at = EXCLUDED.fetched_at
-                    """
-                ),
-                {
-                    "event": e.get("title", "unknown")[:64],
-                    "ccy": (e.get("country") or "")[:8],
-                    "impact": impact[:16],
-                    "starts_at": starts_at,
-                    "ends_at": ends_at,
-                    "now": now,
-                },
-            )
+            event = e.get("title", "unknown")[:64]
+            currency = (e.get("country") or "")[:8]
+
+            existing = s.execute(
+                select(NewsWindow).where(
+                    NewsWindow.event == event,
+                    NewsWindow.starts_at == starts_at,
+                    NewsWindow.currency == currency,
+                )
+            ).scalar_one_or_none()
+            if existing is None:
+                s.add(
+                    NewsWindow(
+                        event=event,
+                        currency=currency,
+                        impact=impact[:16],
+                        starts_at=starts_at,
+                        ends_at=ends_at,
+                        source="forexfactory",
+                        fetched_at=now,
+                    )
+                )
+            else:
+                existing.ends_at = ends_at
+                existing.impact = impact[:16]
+                existing.fetched_at = now
             written += 1
     return written
 
@@ -99,11 +104,12 @@ def upsert_events(entries: list[dict], min_impact: str = "HIGH") -> int:
 def prune_stale(older_than: timedelta = timedelta(days=14)) -> int:
     cutoff = datetime.now(timezone.utc) - older_than
     with get_session() as s:
-        res = s.execute(
-            text("DELETE FROM news_windows WHERE ends_at < :cutoff"),
-            {"cutoff": cutoff},
-        )
-    return int(res.rowcount or 0)
+        stale = s.execute(
+            select(NewsWindow).where(NewsWindow.ends_at < cutoff)
+        ).scalars().all()
+        for row in stale:
+            s.delete(row)
+    return len(stale)
 
 
 def main() -> int:

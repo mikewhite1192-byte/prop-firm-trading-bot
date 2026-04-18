@@ -158,8 +158,18 @@ def _persist_run(
     final_value = metrics.get("portfolio_value") or metrics.get("final_value")
     total_return = metrics.get("total_return")
     sharpe = metrics.get("sharpe") or metrics.get("sharpe_ratio")
-    max_dd = metrics.get("max_drawdown") or metrics.get("max_drawdown_pct")
-    trade_count = int(metrics.get("total_trades") or metrics.get("num_trades") or 0)
+    max_dd_raw = metrics.get("max_drawdown") or metrics.get("max_drawdown_pct")
+    # Lumibot returns max_drawdown as {"drawdown": float, "date": Timestamp}
+    if isinstance(max_dd_raw, dict):
+        max_dd = max_dd_raw.get("drawdown")
+    else:
+        max_dd = max_dd_raw
+    trade_count = int(
+        metrics.get("total_trades")
+        or metrics.get("num_trades")
+        or _count_trades_from_parquet(trades_file.replace(".csv", ".parquet"))
+        or 0
+    )
     win_rate = metrics.get("win_rate")
 
     with get_session() as s:
@@ -196,6 +206,23 @@ def _persist_run(
     log.info("  trades CSV : %s", trades_file)
     log.info("  tearsheet  : %s", tearsheet_file)
     return row
+
+
+def _count_trades_from_parquet(path: str) -> int:
+    """Lumibot writes a trade-events parquet. Count buy-side events as trades
+    (each round-trip = one buy + at least one sell so buys ≈ round-trips)."""
+    if not os.path.exists(path):
+        return 0
+    try:
+        import pandas as pd
+
+        df = pd.read_parquet(path)
+        if "side" in df.columns:
+            return int((df["side"].astype(str).str.lower() == "buy").sum())
+        return len(df)
+    except Exception as e:
+        log.warning("could not read trade-events parquet %s: %s", path, e)
+        return 0
 
 
 def _dec(value, scale: str = "0.01") -> Decimal | None:

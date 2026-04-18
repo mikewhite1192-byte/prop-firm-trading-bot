@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 from typing import Callable
 
 import pytz
@@ -79,6 +79,13 @@ class RiskEngine:
         if status_decision is not None:
             return status_decision
 
+        # Before gating, try to shrink quantity to fit the per-trade cap.
+        # Preserves the strategy's signal rather than rejecting outright on a
+        # ~1% size miscalculation. Only shrinks — never grows beyond the intent.
+        shrunk_qty = self._fit_quantity(intent, mode_rules)
+        if shrunk_qty is not None and shrunk_qty != intent.quantity:
+            intent.quantity = shrunk_qty
+
         per_trade_decision = self._check_per_trade_risk(intent, mode_rules)
         if per_trade_decision is not None:
             return per_trade_decision
@@ -127,6 +134,27 @@ class RiskEngine:
                 f"max ${max_risk_dollar:.2f} ({mode.max_risk_per_trade_pct:.2%})",
             )
         return None
+
+    @staticmethod
+    def _fit_quantity(intent: TradeIntent, mode: ModeRules) -> Decimal | None:
+        """If the intent is over-sized, return the largest qty that still fits."""
+        max_risk_dollar = intent.account.current_balance * mode.max_risk_per_trade_pct
+        distance = abs(intent.entry_price - intent.stop_loss)
+        if distance <= 0 or intent.quantity <= 0:
+            return None
+        per_trade_risk = distance * intent.quantity
+        if per_trade_risk <= max_risk_dollar:
+            return None
+        shrunk = (max_risk_dollar / distance).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
+        if shrunk <= 0:
+            return None
+        log.info(
+            "risk: shrinking qty %s -> %s to fit %.2f%% cap",
+            intent.quantity,
+            shrunk,
+            float(mode.max_risk_per_trade_pct * 100),
+        )
+        return shrunk
 
     @staticmethod
     def _check_daily_loss(intent: TradeIntent, mode: ModeRules) -> RiskDecision | None:
