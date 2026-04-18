@@ -25,6 +25,12 @@ from trading_bot.db.models import (
     Trade,
 )
 from trading_bot.db.session import get_session
+from trading_bot.dashboard.live_feeds import (
+    fetch_headlines,
+    fetch_markets,
+    market_tile,
+    news_tape_html,
+)
 from trading_bot.learning import (
     attribute_by_day_of_week,
     attribute_by_hour,
@@ -445,6 +451,121 @@ st.html(
         width: 120px;
     }}
 
+    /* --- MARKETS STRIP --- */
+    .markets {{
+        display: flex;
+        gap: 2px;
+        background: var(--bg-deep);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 2px;
+        overflow-x: auto;
+        white-space: nowrap;
+        margin: 14px 0 0 0;
+    }}
+    .mkt-tile {{
+        display: inline-flex;
+        flex-direction: column;
+        gap: 3px;
+        padding: 10px 16px;
+        min-width: 110px;
+        background: var(--panel);
+        border-radius: 6px;
+        font-family: 'JetBrains Mono', monospace;
+        font-feature-settings: 'tnum' on;
+    }}
+    .mkt-lbl {{
+        color: var(--text-muted);
+        font-size: 0.58rem;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        font-weight: 700;
+        font-family: 'Inter', sans-serif;
+    }}
+    .mkt-val {{
+        color: var(--text);
+        font-size: 0.95rem;
+        font-weight: 500;
+        letter-spacing: -0.01em;
+    }}
+    .mkt-chg {{
+        font-size: 0.72rem;
+        font-weight: 500;
+    }}
+    .mkt-chg.pos {{ color: var(--pos); text-shadow: 0 0 5px var(--pos-glow); }}
+    .mkt-chg.neg {{ color: var(--neg); text-shadow: 0 0 5px var(--neg-glow); }}
+    .mkt-chg.zero {{ color: var(--text-muted); }}
+
+    /* --- NEWS TAPE (scrolling) --- */
+    .newstape {{
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+        margin: 10px 0 18px 0;
+        position: relative;
+    }}
+    .newstape::before,
+    .newstape::after {{
+        content: '';
+        position: absolute;
+        top: 0; bottom: 0; width: 60px;
+        z-index: 2;
+        pointer-events: none;
+    }}
+    .newstape::before {{
+        left: 0;
+        background: linear-gradient(90deg, var(--panel), transparent);
+    }}
+    .newstape::after {{
+        right: 0;
+        background: linear-gradient(-90deg, var(--panel), transparent);
+    }}
+    .newstape-track {{
+        display: inline-block;
+        white-space: nowrap;
+        padding: 12px 0;
+        animation: scroll-tape 180s linear infinite;
+        font-family: 'Inter', sans-serif;
+        font-size: 0.84rem;
+    }}
+    .newstape:hover .newstape-track {{ animation-play-state: paused; }}
+    @keyframes scroll-tape {{
+        0% {{ transform: translateX(0); }}
+        100% {{ transform: translateX(-50%); }}
+    }}
+    .headline {{
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-right: 36px;
+        color: var(--text);
+    }}
+    .headline-dot {{
+        color: var(--accent);
+        font-size: 0.7rem;
+    }}
+    .headline-sym {{
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.66rem;
+        font-weight: 700;
+        color: var(--accent);
+        background: rgba(0, 217, 255, 0.1);
+        border: 1px solid rgba(0, 217, 255, 0.3);
+        padding: 1px 6px;
+        border-radius: 3px;
+        letter-spacing: 0.05em;
+    }}
+    .headline-title {{
+        color: var(--text);
+        font-weight: 500;
+    }}
+    .headline-meta {{
+        color: var(--text-muted);
+        font-size: 0.72rem;
+        margin-left: 6px;
+    }}
+
     </style>
     """
 )
@@ -768,6 +889,17 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# --- live markets strip (yfinance, 60s cache) ---
+markets = fetch_markets()
+if markets:
+    tiles = "".join(market_tile(m) for m in markets)
+    st.markdown(f'<div class="markets">{tiles}</div>', unsafe_allow_html=True)
+
+# --- news ticker (Alpaca News API, 5m cache) ---
+headlines = fetch_headlines()
+if headlines:
+    st.markdown(news_tape_html(headlines), unsafe_allow_html=True)
 
 # --- ticker strip ---
 def _ticker() -> str:
