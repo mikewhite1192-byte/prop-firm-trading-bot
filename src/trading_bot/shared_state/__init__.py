@@ -1,3 +1,4 @@
+from trading_bot.shared_state.account_sync import AccountSync
 from trading_bot.shared_state.coordinator import (
     NewsWindow,
     SharedStateCoordinator,
@@ -7,6 +8,7 @@ from trading_bot.shared_state.coordinator import (
 )
 
 __all__ = [
+    "AccountSync",
     "NewsWindow",
     "SharedStateCoordinator",
     "broadcast_halt",

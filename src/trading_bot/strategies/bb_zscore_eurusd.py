@@ -21,10 +21,10 @@ from datetime import time as dtime, timezone
 from decimal import Decimal
 
 import numpy as np
-import pandas as pd
 from lumibot.entities import Asset
 
 from trading_bot.brokers.base_types import OrderSide
+from trading_bot.indicators import adx, atr, rsi
 from trading_bot.strategies.base import RiskGatedStrategy
 
 
@@ -69,26 +69,32 @@ class BBZScoreEURUSD(RiskGatedStrategy):
         mid = close.rolling(self.parameters["bb_period"]).mean()
         std = close.rolling(self.parameters["bb_period"]).std()
         z = (close - mid) / std.replace(0, np.nan)
-        rsi = _rsi(close, self.parameters["rsi_period"])
-        adx_h4 = _adx(h4.df, self.parameters["adx_period"]).iloc[-1]
+        rsi_series = rsi(close, self.parameters["rsi_period"])
+        adx_h4 = adx(h4.df, self.parameters["adx_period"]).iloc[-1]
 
-        if np.isnan(z.iloc[-1]) or np.isnan(rsi.iloc[-1]) or np.isnan(adx_h4):
+        if np.isnan(z.iloc[-1]) or np.isnan(rsi_series.iloc[-1]) or np.isnan(adx_h4):
             return
         if adx_h4 >= self.parameters["adx_range_max"]:
             return  # trending regime — skip mean reversion
 
         side: OrderSide | None = None
-        if z.iloc[-1] <= -self.parameters["z_entry"] and rsi.iloc[-1] < self.parameters["rsi_long_threshold"]:
+        if (
+            z.iloc[-1] <= -self.parameters["z_entry"]
+            and rsi_series.iloc[-1] < self.parameters["rsi_long_threshold"]
+        ):
             side = OrderSide.BUY
-        elif z.iloc[-1] >= self.parameters["z_entry"] and rsi.iloc[-1] > self.parameters["rsi_short_threshold"]:
+        elif (
+            z.iloc[-1] >= self.parameters["z_entry"]
+            and rsi_series.iloc[-1] > self.parameters["rsi_short_threshold"]
+        ):
             side = OrderSide.SELL
         if side is None:
             return
 
-        atr = _atr(m15.df, 14).iloc[-1]
+        atr_val = atr(m15.df, 14).iloc[-1]
         last = close.iloc[-1]
         entry = Decimal(str(last))
-        stop_dist = Decimal(str(atr * self.parameters["atr_stop_multiple"]))
+        stop_dist = Decimal(str(atr_val * self.parameters["atr_stop_multiple"]))
         stop = entry - stop_dist if side == OrderSide.BUY else entry + stop_dist
         # Mid-band target converts to dynamic exit in _maybe_exit; no fixed TP.
         qty = self._position_size(entry, stop)
@@ -101,7 +107,7 @@ class BBZScoreEURUSD(RiskGatedStrategy):
             quantity=qty,
             entry_price=entry,
             stop_loss=stop,
-            reason=f"z={z.iloc[-1]:.2f} rsi={rsi.iloc[-1]:.1f} adx_h4={adx_h4:.1f}",
+            reason=f"z={z.iloc[-1]:.2f} rsi={rsi_series.iloc[-1]:.1f} adx_h4={adx_h4:.1f}",
         )
 
     def _maybe_exit(self) -> None:
@@ -138,32 +144,3 @@ class BBZScoreEURUSD(RiskGatedStrategy):
         return (risk_dollar / distance).quantize(Decimal("1"))
 
 
-def _rsi(close: pd.Series, period: int) -> pd.Series:
-    delta = close.diff()
-    gain = delta.clip(lower=0).ewm(alpha=1 / period, adjust=False).mean()
-    loss = (-delta.clip(upper=0)).ewm(alpha=1 / period, adjust=False).mean()
-    rs = gain / loss.replace(0, np.nan)
-    return 100 - (100 / (1 + rs))
-
-
-def _atr(df: pd.DataFrame, period: int) -> pd.Series:
-    high, low, close = df["high"], df["low"], df["close"]
-    prev = close.shift(1)
-    tr = pd.concat([(high - low), (high - prev).abs(), (low - prev).abs()], axis=1).max(axis=1)
-    return tr.rolling(period).mean()
-
-
-def _adx(df: pd.DataFrame, period: int) -> pd.Series:
-    high, low, close = df["high"], df["low"], df["close"]
-    up = high.diff()
-    dn = -low.diff()
-    plus_dm = np.where((up > dn) & (up > 0), up, 0.0)
-    minus_dm = np.where((dn > up) & (dn > 0), dn, 0.0)
-    tr = pd.concat(
-        [(high - low), (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1
-    ).max(axis=1)
-    atr = tr.ewm(alpha=1 / period, adjust=False).mean()
-    plus_di = 100 * pd.Series(plus_dm, index=df.index).ewm(alpha=1 / period, adjust=False).mean() / atr
-    minus_di = 100 * pd.Series(minus_dm, index=df.index).ewm(alpha=1 / period, adjust=False).mean() / atr
-    dx = ((plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)) * 100
-    return dx.ewm(alpha=1 / period, adjust=False).mean()

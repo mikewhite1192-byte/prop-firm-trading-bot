@@ -142,6 +142,53 @@ class Trade(Base):
     account: Mapped[Account] = relationship(back_populates="trades")
 
 
+class NewsWindow(Base):
+    """Populated by the news-calendar scraper; consulted by is_news_blackout."""
+
+    __tablename__ = "news_windows"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    event: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False)
+    impact: Mapped[str] = mapped_column(String(16), nullable=False)  # HIGH, MEDIUM, LOW
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, default="forexfactory")
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("event", "starts_at", "currency", name="uq_news_event_start_ccy"),
+    )
+
+
+class StrategyDailyPnL(Base):
+    """Per-firm / per-strategy daily P&L roll-up for the funded consistency rule
+    ("no single day > 30% of total profit"). Written by the trade logger on every
+    fill; read by RiskEngine before approving funded-mode entries.
+    """
+
+    __tablename__ = "strategy_daily_pnl"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    firm: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    strategy_name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    trade_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    pnl: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0"))
+    trade_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    __table_args__ = (
+        UniqueConstraint("firm", "strategy_name", "trade_date", name="uq_strategy_pnl_day"),
+    )
+
+
 class DailySummary(Base):
     __tablename__ = "daily_summary"
 

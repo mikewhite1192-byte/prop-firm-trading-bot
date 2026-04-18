@@ -17,10 +17,10 @@ from __future__ import annotations
 from decimal import Decimal
 
 import numpy as np
-import pandas as pd
 from lumibot.entities import Asset
 
 from trading_bot.brokers.base_types import OrderSide
+from trading_bot.indicators import adx, atr, rsi
 from trading_bot.strategies.base import RiskGatedStrategy
 
 
@@ -81,27 +81,27 @@ class BBBTC4H(RiskGatedStrategy):
         mid = close4.rolling(self.parameters["bb_period"]).mean()
         std = close4.rolling(self.parameters["bb_period"]).std()
         lower = mid - self.parameters["bb_stddev"] * std
-        rsi = _rsi(close4, self.parameters["rsi_period"]).iloc[-1]
-        adx = _adx(h4.df, self.parameters["adx_period"]).iloc[-1]
-        atr = _atr(h4.df, self.parameters["atr_period"]).iloc[-1]
+        rsi_val = rsi(close4, self.parameters["rsi_period"]).iloc[-1]
+        adx_val = adx(h4.df, self.parameters["adx_period"]).iloc[-1]
+        atr_val = atr(h4.df, self.parameters["atr_period"]).iloc[-1]
         sma_daily = daily.df["close"].rolling(self.parameters["daily_trend_period"]).mean().iloc[-1]
 
         last4 = close4.iloc[-1]
         last_daily = daily.df["close"].iloc[-1]
-        if any(np.isnan(x) for x in (rsi, adx, atr, sma_daily, lower.iloc[-1])):
+        if any(np.isnan(x) for x in (rsi_val, adx_val, atr_val, sma_daily, lower.iloc[-1])):
             return
         if last_daily <= sma_daily:
             return  # daily trend filter — long bias only
-        if adx >= self.parameters["adx_range_max"]:
+        if adx_val >= self.parameters["adx_range_max"]:
             return  # trending regime
 
         if last4 > lower.iloc[-1]:
             return
-        if rsi >= self.parameters["rsi_long_threshold"]:
+        if rsi_val >= self.parameters["rsi_long_threshold"]:
             return
 
         entry = Decimal(str(last4))
-        stop = entry - Decimal(str(atr * self.parameters["atr_stop_multiple"]))
+        stop = entry - Decimal(str(atr_val * self.parameters["atr_stop_multiple"]))
         qty = self._position_size(entry, stop)
         if qty <= 0:
             return
@@ -113,7 +113,7 @@ class BBBTC4H(RiskGatedStrategy):
             entry_price=entry,
             stop_loss=stop,
             reason=f"4H close {last4:.2f} < lower BB {lower.iloc[-1]:.2f}, "
-            f"RSI={rsi:.1f}, ADX={adx:.1f}, daily>SMA200",
+            f"RSI={rsi_val:.1f}, ADX={adx_val:.1f}, daily>SMA200",
         )
 
     def _maybe_scale_exit(self) -> None:
@@ -146,34 +146,3 @@ class BBBTC4H(RiskGatedStrategy):
 
 def _have_bars(bars, min_len: int) -> bool:
     return bars is not None and bars.df is not None and len(bars.df) >= min_len
-
-
-def _rsi(close: pd.Series, period: int) -> pd.Series:
-    delta = close.diff()
-    gain = delta.clip(lower=0).ewm(alpha=1 / period, adjust=False).mean()
-    loss = (-delta.clip(upper=0)).ewm(alpha=1 / period, adjust=False).mean()
-    rs = gain / loss.replace(0, np.nan)
-    return 100 - (100 / (1 + rs))
-
-
-def _atr(df: pd.DataFrame, period: int) -> pd.Series:
-    high, low, close = df["high"], df["low"], df["close"]
-    prev = close.shift(1)
-    tr = pd.concat([(high - low), (high - prev).abs(), (low - prev).abs()], axis=1).max(axis=1)
-    return tr.rolling(period).mean()
-
-
-def _adx(df: pd.DataFrame, period: int) -> pd.Series:
-    high, low, close = df["high"], df["low"], df["close"]
-    up = high.diff()
-    dn = -low.diff()
-    plus_dm = np.where((up > dn) & (up > 0), up, 0.0)
-    minus_dm = np.where((dn > up) & (dn > 0), dn, 0.0)
-    tr = pd.concat(
-        [(high - low), (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1
-    ).max(axis=1)
-    atr = tr.ewm(alpha=1 / period, adjust=False).mean()
-    plus_di = 100 * pd.Series(plus_dm, index=df.index).ewm(alpha=1 / period, adjust=False).mean() / atr
-    minus_di = 100 * pd.Series(minus_dm, index=df.index).ewm(alpha=1 / period, adjust=False).mean() / atr
-    dx = ((plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)) * 100
-    return dx.ewm(alpha=1 / period, adjust=False).mean()

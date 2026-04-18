@@ -18,10 +18,10 @@ from datetime import time as dtime
 from decimal import Decimal
 
 import numpy as np
-import pandas as pd
 from lumibot.entities import Asset
 
 from trading_bot.brokers.base_types import OrderSide
+from trading_bot.indicators import atr
 from trading_bot.strategies.base import RiskGatedStrategy
 
 ES_TICK_SIZE = Decimal("0.25")
@@ -68,17 +68,17 @@ class TinyGapES(RiskGatedStrategy):
         if len(daily.df) < self.parameters["atr_period"] + 1:
             return
 
-        atr = _atr(daily.df, self.parameters["atr_period"]).iloc[-1]
+        atr_val = atr(daily.df, self.parameters["atr_period"]).iloc[-1]
         prior_rth_close = daily.df["close"].iloc[-1]
         prior_high = daily.df["high"].iloc[-1]
         prior_low = daily.df["low"].iloc[-1]
         today_open = minute.df["open"].iloc[0]
         last = minute.df["close"].iloc[-1]
-        if np.isnan(atr):
+        if np.isnan(atr_val):
             return
 
         gap = today_open - prior_rth_close
-        atr_norm = abs(gap) / atr if atr else float("inf")
+        atr_norm = abs(gap) / atr_val if atr_val else float("inf")
         if atr_norm > self.parameters["gap_atr_skip_mult"]:
             return
         if atr_norm > self.parameters["gap_atr_max_mult"]:
@@ -121,8 +121,3 @@ class TinyGapES(RiskGatedStrategy):
         return (risk_dollar / (ticks * ES_TICK_VALUE)).quantize(Decimal("1"))
 
 
-def _atr(df: pd.DataFrame, period: int) -> pd.Series:
-    high, low, close = df["high"], df["low"], df["close"]
-    prev = close.shift(1)
-    tr = pd.concat([(high - low), (high - prev).abs(), (low - prev).abs()], axis=1).max(axis=1)
-    return tr.rolling(period).mean()

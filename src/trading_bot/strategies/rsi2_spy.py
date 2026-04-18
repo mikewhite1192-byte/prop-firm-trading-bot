@@ -14,10 +14,10 @@ from __future__ import annotations
 from decimal import Decimal
 
 import numpy as np
-import pandas as pd
 from lumibot.entities import Asset
 
 from trading_bot.brokers.base_types import OrderSide
+from trading_bot.indicators import atr, rsi
 from trading_bot.strategies.base import RiskGatedStrategy
 
 
@@ -55,16 +55,16 @@ class RSI2SPY(RiskGatedStrategy):
 
         close = bars.df["close"]
         sma_long = close.rolling(self.parameters["sma_long"]).mean().iloc[-1]
-        rsi = _rsi(close, self.parameters["rsi_period"]).iloc[-1]
-        atr = _atr(bars.df, self.parameters["atr_period"]).iloc[-1]
+        rsi_val = rsi(close, self.parameters["rsi_period"]).iloc[-1]
+        atr_val = atr(bars.df, self.parameters["atr_period"]).iloc[-1]
         last = close.iloc[-1]
 
-        if np.isnan(sma_long) or np.isnan(rsi) or np.isnan(atr):
+        if np.isnan(sma_long) or np.isnan(rsi_val) or np.isnan(atr_val):
             return
 
-        if last > sma_long and rsi < self.parameters["rsi_entry_threshold"]:
+        if last > sma_long and rsi_val < self.parameters["rsi_entry_threshold"]:
             entry = Decimal(str(last))
-            stop = entry - Decimal(str(atr * self.parameters["atr_stop_multiple"]))
+            stop = entry - Decimal(str(atr_val * self.parameters["atr_stop_multiple"]))
             qty = self._position_size(entry, stop)
             if qty > 0:
                 self.propose_entry(
@@ -73,7 +73,7 @@ class RSI2SPY(RiskGatedStrategy):
                     quantity=qty,
                     entry_price=entry,
                     stop_loss=stop,
-                    reason=f"RSI(2)={rsi:.2f} < 10, close > SMA(200)={sma_long:.2f}",
+                    reason=f"RSI(2)={rsi_val:.2f} < 10, close > SMA(200)={sma_long:.2f}",
                 )
 
     def _maybe_exit(self) -> None:
@@ -94,18 +94,3 @@ class RSI2SPY(RiskGatedStrategy):
         if distance == 0:
             return Decimal("0")
         return (risk_dollar / distance).quantize(Decimal("1"))
-
-
-def _rsi(close: pd.Series, period: int) -> pd.Series:
-    delta = close.diff()
-    gain = delta.clip(lower=0).ewm(alpha=1 / period, adjust=False).mean()
-    loss = (-delta.clip(upper=0)).ewm(alpha=1 / period, adjust=False).mean()
-    rs = gain / loss.replace(0, np.nan)
-    return 100 - (100 / (1 + rs))
-
-
-def _atr(df: pd.DataFrame, period: int) -> pd.Series:
-    high, low, close = df["high"], df["low"], df["close"]
-    prev = close.shift(1)
-    tr = pd.concat([(high - low), (high - prev).abs(), (low - prev).abs()], axis=1).max(axis=1)
-    return tr.rolling(period).mean()

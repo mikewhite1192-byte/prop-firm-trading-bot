@@ -18,11 +18,11 @@ from __future__ import annotations
 from datetime import time as dtime
 from decimal import Decimal
 
-import numpy as np
 import pandas as pd
 from lumibot.entities import Asset
 
 from trading_bot.brokers.base_types import OrderSide
+from trading_bot.indicators import is_stall_candle, session_vwap_sigma
 from trading_bot.strategies.base import RiskGatedStrategy
 
 ES_TICK_SIZE = Decimal("0.25")
@@ -78,10 +78,10 @@ class VWAPSigmaES(RiskGatedStrategy):
         if self._trend_day:
             return
 
-        vwap, upper, lower = _vwap_sigma(today, self.parameters["sigma_entry"])
+        vwap, upper, lower = session_vwap_sigma(today, self.parameters["sigma_entry"])
         last_bar = today.iloc[-1]
         last = last_bar["close"]
-        stall = _is_stall_candle(today, lookback=3)
+        stall = is_stall_candle(today, lookback=3)
 
         if self.get_position(self._asset):
             self._maybe_exit_vwap(vwap_series=vwap)
@@ -125,7 +125,7 @@ class VWAPSigmaES(RiskGatedStrategy):
             today = _today_session(bars.df, self.get_datetime())
             if today.empty:
                 return
-            vwap_series, _, _ = _vwap_sigma(today, self.parameters["sigma_entry"])
+            vwap_series, _, _ = session_vwap_sigma(today, self.parameters["sigma_entry"])
         pos = self.get_position(self._asset)
         if pos is None:
             return
@@ -153,32 +153,11 @@ def _today_session(df: pd.DataFrame, now) -> pd.DataFrame:
     return df[df.index >= rth_open]
 
 
-def _vwap_sigma(df: pd.DataFrame, sigma: float) -> tuple[pd.Series, pd.Series, pd.Series]:
-    tp = (df["high"] + df["low"] + df["close"]) / 3
-    vol = df.get("volume", pd.Series(1.0, index=df.index))
-    cumvol = vol.cumsum()
-    vwap = (tp * vol).cumsum() / cumvol.replace(0, np.nan)
-    residual = tp - vwap
-    std = (residual.pow(2) * vol).cumsum() / cumvol.replace(0, np.nan)
-    std = std.pow(0.5)
-    return vwap, vwap + sigma * std, vwap - sigma * std
-
-
 def _is_trend_day(today: pd.DataFrame, minutes_window: int) -> bool:
     """Trend-day filter: true if first N minutes never traded through VWAP."""
     window = today.iloc[:minutes_window]
     if window.empty:
         return False
-    vwap, _, _ = _vwap_sigma(window, sigma=1.0)
-    highs = window["high"]
-    lows = window["low"]
-    crossed = ((highs >= vwap) & (lows <= vwap)).any()
+    vwap, _, _ = session_vwap_sigma(window, sigma=1.0)
+    crossed = ((window["high"] >= vwap) & (window["low"] <= vwap)).any()
     return not crossed
-
-
-def _is_stall_candle(today: pd.DataFrame, lookback: int = 3) -> bool:
-    if len(today) < lookback + 1:
-        return False
-    cur_range = today["high"].iloc[-1] - today["low"].iloc[-1]
-    avg_range = (today["high"] - today["low"]).iloc[-(lookback + 1):-1].mean()
-    return cur_range < 0.5 * avg_range
