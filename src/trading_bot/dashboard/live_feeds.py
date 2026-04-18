@@ -43,6 +43,41 @@ MARKET_SYMBOLS: dict[str, str] = {
 }
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def fetch_alpaca_balance() -> dict | None:
+    """Pull the real Alpaca paper-account balance.
+
+    Our DB has per-strategy nominal books ($100k each). This is the
+    actual one shared pool those strategies trade against.
+    """
+    s = get_settings()
+    if not (s.alpaca_api_key and s.alpaca_api_secret):
+        return None
+    try:
+        r = httpx.get(
+            f"{s.alpaca_base_url}/v2/account",
+            headers={
+                "APCA-API-KEY-ID": s.alpaca_api_key,
+                "APCA-API-SECRET-KEY": s.alpaca_api_secret,
+            },
+            timeout=10.0,
+        )
+        r.raise_for_status()
+        data = r.json()
+        return {
+            "equity": float(data.get("equity", 0)),
+            "cash": float(data.get("cash", 0)),
+            "buying_power": float(data.get("buying_power", 0)),
+            "last_equity": float(data.get("last_equity", 0)),
+            "portfolio_value": float(data.get("portfolio_value", 0)),
+            "account_number": data.get("account_number", ""),
+            "status": data.get("status", ""),
+        }
+    except Exception as e:
+        log.warning("alpaca balance fetch failed: %s", e)
+        return None
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def fetch_markets() -> list[dict]:
     """Returns a list of {label, symbol, price, change_pct} dicts.

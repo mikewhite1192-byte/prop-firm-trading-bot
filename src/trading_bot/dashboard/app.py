@@ -26,6 +26,7 @@ from trading_bot.db.models import (
 )
 from trading_bot.db.session import get_session
 from trading_bot.dashboard.live_feeds import (
+    fetch_alpaca_balance,
     fetch_headlines,
     fetch_markets,
     market_tile,
@@ -926,13 +927,27 @@ if headlines:
     st.markdown(news_tape_html(headlines), unsafe_allow_html=True)
 
 # --- ticker strip ---
+alpaca_acct = fetch_alpaca_balance()
+
 def _ticker() -> str:
-    total_balance = sum(a["balance"] for a in accounts)
-    total_start = sum(a["starting_balance"] for a in accounts)
-    total_pnl = total_balance - total_start
-    total_ret = total_pnl / total_start if total_start else 0
-    daily_pnl = sum(a["daily_pnl"] for a in accounts)
+    # Prefer the REAL Alpaca balance for NAV; fall back to DB nominals.
+    if alpaca_acct and alpaca_acct.get("equity"):
+        real_nav = alpaca_acct["equity"]
+        day_delta = real_nav - (alpaca_acct.get("last_equity") or real_nav)
+        day_ret = day_delta / alpaca_acct["last_equity"] if alpaca_acct.get("last_equity") else 0
+        nav_label = "ALPACA NAV"
+        nav_sub = f"{day_ret:+.2%}"
+    else:
+        real_nav = sum(a["balance"] for a in accounts)
+        day_delta = sum(a["daily_pnl"] for a in accounts)
+        total_start = sum(a["starting_balance"] for a in accounts)
+        day_ret = (real_nav - total_start) / total_start if total_start else 0
+        nav_label = "NAV (NOMINAL)"
+        nav_sub = f"{day_ret:+.2%}"
+
+    nominal_alloc = sum(a["starting_balance"] for a in accounts)
     weekly_pnl = sum(a["weekly_pnl"] for a in accounts)
+    daily_pnl_nominal = sum(a["daily_pnl"] for a in accounts)
     active = sum(1 for a in accounts if a["status"] == "ACTIVE")
     halted = sum(1 for a in accounts if a["status"] in ("HALTED", "BLOWN"))
     max_dd = max((a["drawdown_pct"] for a in accounts), default=0)
@@ -942,15 +957,17 @@ def _ticker() -> str:
 
     return f"""
     <div class="ticker">
-        <div class="tick"><span class="lbl">NAV</span>
-            <span class="val">${total_balance:,.0f}</span>
-            <span class="val {cls(total_ret)}">{total_ret:+.2%}</span></div>
-        <div class="tick"><span class="lbl">DAY</span>
-            <span class="val {cls(daily_pnl)}">${daily_pnl:+,.2f}</span></div>
-        <div class="tick"><span class="lbl">WK</span>
+        <div class="tick"><span class="lbl">{nav_label}</span>
+            <span class="val">${real_nav:,.0f}</span>
+            <span class="val {cls(day_delta)}">{nav_sub}</span></div>
+        <div class="tick"><span class="lbl">DAY P&L</span>
+            <span class="val {cls(day_delta)}">${day_delta:+,.2f}</span></div>
+        <div class="tick"><span class="lbl">NOMINAL ALLOC</span>
+            <span class="val">${nominal_alloc:,.0f}</span>
+            <span class="val" style="color:var(--text-muted); font-size:0.66rem;">
+                {len(accounts)} strategies</span></div>
+        <div class="tick"><span class="lbl">WK (STRAT)</span>
             <span class="val {cls(weekly_pnl)}">${weekly_pnl:+,.2f}</span></div>
-        <div class="tick"><span class="lbl">P&L</span>
-            <span class="val {cls(total_pnl)}">${total_pnl:+,.2f}</span></div>
         <div class="tick"><span class="lbl">ACTIVE</span>
             <span class="val">{active}/{len(accounts)}</span></div>
         <div class="tick"><span class="lbl">HALTED</span>
@@ -961,6 +978,19 @@ def _ticker() -> str:
     """
 
 st.markdown(_ticker(), unsafe_allow_html=True)
+
+# Explainer line under ticker the first time you see it.
+if alpaca_acct:
+    st.markdown(
+        f'<div style="font-family:Inter; font-size:0.72rem; color:{TEXT_MUTED}; '
+        f'margin-top:6px; letter-spacing:0.04em;">'
+        f'Alpaca paper account <code style="color:{TEXT_DIM};">{alpaca_acct.get("account_number","")}</code> '
+        f'· <strong style="color:{TEXT_DIM};">${alpaca_acct["equity"]:,.2f}</strong> real balance, '
+        f'shared across {len(accounts)} strategies · '
+        f'buying power <strong style="color:{TEXT_DIM};">${alpaca_acct["buying_power"]:,.0f}</strong>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 # --- hero equity chart ---
 col_l, col_r = st.columns([3, 2])
