@@ -16,14 +16,14 @@ class TelegramNotifier:
         self._chat_id = s.telegram_chat_id
         self._enabled = bool(self._token and self._chat_id)
 
-    async def send(self, title: str, body: str) -> None:
+    def send(self, title: str, body: str) -> None:
         if not self._enabled:
             return
         url = f"https://api.telegram.org/bot{self._token}/sendMessage"
         text = f"*{title}*\n{body}"
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                await client.post(
+            with httpx.Client(timeout=10.0) as client:
+                client.post(
                     url,
                     json={"chat_id": self._chat_id, "text": text, "parse_mode": "Markdown"},
                 )

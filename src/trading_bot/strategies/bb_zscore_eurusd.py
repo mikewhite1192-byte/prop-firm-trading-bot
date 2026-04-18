@@ -61,7 +61,7 @@ class BBZScoreEURUSD(RiskGatedStrategy):
             return
 
         m15 = self.get_historical_prices(self._asset, length=self.parameters["bb_period"] + 50, timestep="minute")
-        h4 = self.get_historical_prices(self._asset, length=self.parameters["adx_period"] + 50, timestep="240 minutes")
+        h4 = self.get_historical_prices(self._asset, length=self.parameters["adx_period"] + 50, timestep="4h")
         if not self._have_bars(m15) or not self._have_bars(h4):
             return
 

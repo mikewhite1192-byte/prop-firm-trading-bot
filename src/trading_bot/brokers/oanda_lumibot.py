@@ -39,20 +39,51 @@ from trading_bot.config import get_settings
 log = logging.getLogger(__name__)
 
 
-_TIMESTEP_TO_GRANULARITY = {
-    "minute": "M1",
-    "1 minute": "M1",
-    "5 minutes": "M5",
-    "15 minutes": "M15",
-    "15M": "M15",
-    "30 minutes": "M30",
-    "hour": "H1",
-    "1 hour": "H1",
-    "4 hours": "H4",
-    "240 minutes": "H4",
-    "day": "D",
-    "1 day": "D",
+_GRANULARITY_BY_MINUTES = {
+    1: "M1",
+    2: "M2",
+    4: "M4",
+    5: "M5",
+    10: "M10",
+    15: "M15",
+    30: "M30",
+    60: "H1",
+    120: "H2",
+    180: "H3",
+    240: "H4",
+    360: "H6",
+    480: "H8",
+    720: "H12",
+    1440: "D",
+    10080: "W",
 }
+
+
+def _timestep_to_minutes(timestep: str | int) -> int | None:
+    """Lumibot accepts timesteps like 'minute', '15min', '4h', '1day'. Normalise."""
+    if isinstance(timestep, int):
+        return timestep
+    t = timestep.lower().strip()
+    quantity = 1
+    if t and t[0].isdigit():
+        for i, c in enumerate(t):
+            if not c.isdigit():
+                quantity = int(t[:i])
+                t = t[i:].strip().rstrip("s")
+                break
+        else:
+            return int(t)  # pure number
+    units = {"m": 1, "min": 1, "minute": 1, "h": 60, "hour": 60, "d": 1440, "day": 1440}
+    if t not in units:
+        return None
+    return quantity * units[t]
+
+
+def _granularity_for(timestep: str | int) -> str | None:
+    minutes = _timestep_to_minutes(timestep)
+    if minutes is None:
+        return None
+    return _GRANULARITY_BY_MINUTES.get(minutes)
 
 
 class OandaDataSource(DataSource):
@@ -60,7 +91,11 @@ class OandaDataSource(DataSource):
 
     SOURCE = "OANDA"
     MIN_TIMESTEP = "minute"
-    TIMESTEP_MAPPING = list(_TIMESTEP_TO_GRANULARITY.keys())
+    TIMESTEP_MAPPING = [
+        {"timestep": "minute", "representations": ["minute", "1min", "1m", "M1"]},
+        {"timestep": "hour", "representations": ["hour", "1hour", "1h", "H1"]},
+        {"timestep": "day", "representations": ["day", "1day", "1d", "D"]},
+    ]
 
     def __init__(self, api: API, account_id: str) -> None:
         super().__init__()
@@ -75,7 +110,7 @@ class OandaDataSource(DataSource):
         quote: Asset | None = None,
         **_: dict,
     ) -> Bars | None:
-        granularity = _TIMESTEP_TO_GRANULARITY.get(timestep.lower() if isinstance(timestep, str) else timestep)
+        granularity = _granularity_for(timestep)
         if granularity is None:
             log.warning("oanda: unsupported timestep %s", timestep)
             return None

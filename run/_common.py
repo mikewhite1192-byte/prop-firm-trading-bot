@@ -39,15 +39,18 @@ def make_alpaca_broker(paper: bool = True):
 
 def make_tradovate_broker():
     s = get_settings()
+    # Tradovate's config keys (per lumibot/brokers/tradovate.py __init__): USERNAME,
+    # DEDICATED_PASSWORD, APP_ID, APP_VERSION, CID, SECRET, IS_PAPER. The dedicated
+    # password is the one Tradovate issues separately for API access — not the web login.
     return Tradovate(
         dict(
             USERNAME=s.tradovate_username,
-            PASSWORD=s.tradovate_password,
-            APP_ID=s.tradovate_app_id,
+            DEDICATED_PASSWORD=s.tradovate_password,
+            APP_ID=s.tradovate_app_id or "Lumibot",
             APP_VERSION=s.tradovate_app_version,
             CID=s.tradovate_client_id,
             SECRET=s.tradovate_client_secret,
-            ENVIRONMENT=s.tradovate_environment,
+            IS_PAPER=s.tradovate_environment.lower() != "live",
         )
     )
 

@@ -143,20 +143,12 @@ class RiskGatedStrategy(Strategy):
         )
         if decision.halt_account:
             self._mark_account_halted(hard_stop=decision.hard_stop)
-            import asyncio
-
             severity = Severity.CRITICAL if decision.hard_stop else Severity.WARN
-            try:
-                asyncio.run(
-                    self._notifier.send(
-                        severity,
-                        f"{self.firm}/{self.strategy_name} halted",
-                        decision.reason,
-                    )
-                )
-            except RuntimeError:
-                # Already inside an event loop (Lumibot sometimes runs async); fall back.
-                log.warning("notifier could not run in existing loop; logged only")
+            self._notifier.send(
+                severity,
+                f"{self.firm}/{self.strategy_name} halted",
+                decision.reason,
+            )
 
         if decision.hard_stop:
             # Defensive: flatten everything this strategy holds on a hard stop.

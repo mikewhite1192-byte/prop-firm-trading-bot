@@ -63,7 +63,7 @@ class BBBTC4H(RiskGatedStrategy):
         h4 = self.get_historical_prices(
             self._asset,
             length=self.parameters["bb_period"] + 60,
-            timestep="240 minutes",
+            timestep="4h",
             quote=self._quote,
         )
         daily = self.get_historical_prices(
@@ -121,7 +121,7 @@ class BBBTC4H(RiskGatedStrategy):
         h4 = self.get_historical_prices(
             self._asset,
             length=self.parameters["bb_period"] + 5,
-            timestep="240 minutes",
+            timestep="4h",
             quote=self._quote,
         )
         if not _have_bars(h4, self.parameters["bb_period"]):

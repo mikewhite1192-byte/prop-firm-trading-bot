@@ -18,17 +18,17 @@ class Severity(str, enum.Enum):
 class NotificationDispatcher:
     """Fan out notifications to configured channels.
 
-    Both channels are optional — if credentials are missing the notifier
-    silently no-ops. At least one channel should be wired up for live
-    trading so risk-halt events are visible.
+    Synchronous on purpose — call sites are low-rate (a few alerts per day)
+    and live inside Lumibot's thread-based strategy loops. Both channels
+    silently no-op if their credentials are unset.
     """
 
     def __init__(self) -> None:
         self._telegram = TelegramNotifier()
         self._email = EmailNotifier()
 
-    async def send(self, severity: Severity, title: str, body: str) -> None:
+    def send(self, severity: Severity, title: str, body: str) -> None:
         prefix = f"[{severity.value}] {title}"
         log.info("notify %s: %s", prefix, body)
-        await self._telegram.send(prefix, body)
-        await self._email.send(prefix, body)
+        self._telegram.send(prefix, body)
+        self._email.send(prefix, body)

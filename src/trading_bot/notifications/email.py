@@ -20,7 +20,7 @@ class EmailNotifier:
         self._to = s.smtp_to
         self._enabled = all([self._host, self._user, self._password, self._from, self._to])
 
-    async def send(self, title: str, body: str) -> None:
+    def send(self, title: str, body: str) -> None:
         if not self._enabled:
             return
         msg = EmailMessage()
@@ -29,7 +29,6 @@ class EmailNotifier:
         msg["Subject"] = title
         msg.set_content(body)
         try:
-            # SMTP is blocking; acceptable here since notifications are low-rate.
             with smtplib.SMTP(self._host, self._port, timeout=15) as server:
                 server.starttls()
                 server.login(self._user, self._password)
