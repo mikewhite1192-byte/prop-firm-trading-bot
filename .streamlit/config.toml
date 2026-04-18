@@ -1,8 +1,8 @@
 [theme]
 base = "dark"
-primaryColor = "#22d3ee"
-backgroundColor = "#0b0f17"
-secondaryBackgroundColor = "#141a24"
+primaryColor = "#00d9ff"
+backgroundColor = "#05080f"
+secondaryBackgroundColor = "#0a0f1a"
 textColor = "#e8eef8"
 font = "sans serif"
 
@@ -12,3 +12,7 @@ runOnSave = true
 
 [browser]
 gatherUsageStats = false
+
+[client]
+toolbarMode = "minimal"
+showErrorDetails = true

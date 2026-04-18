@@ -1,18 +1,15 @@
-"""Prop Firm Trading — live monitor.
+"""Prop firm trading terminal.
 
-Run with:  streamlit run src/trading_bot/dashboard/app.py
+Bloomberg-meets-Robinhood aesthetic: deep navy-black canvas, electric
+blue + neon green accents, tabular monospace numbers, subtle glows on
+live data, sparklines inline in account rows. Run with:
 
-Design goals:
-  * Financial-terminal feel: dark, high-density, fast.
-  * Every tile answers one question. No tables where a chart tells it better.
-  * Empty states are first-class — new users see "why it's empty + what to run"
-    instead of spinner soup.
+    streamlit run src/trading_bot/dashboard/app.py
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 
 import pandas as pd
 import plotly.express as px
@@ -22,7 +19,6 @@ from sqlalchemy import select
 
 from trading_bot.db.models import (
     Account,
-    AccountStatus,
     BacktestRun,
     NewsWindow,
     StrategyPerformanceDaily,
@@ -39,117 +35,424 @@ from trading_bot.learning import (
 from trading_bot.risk.rules import MODE_RULES
 
 st.set_page_config(
-    page_title="Prop Firm Trading",
+    page_title="Trading Desk",
     page_icon="◆",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
-# ---- global CSS ----------------------------------------------------------
+# ---- brand palette -------------------------------------------------------
+
+BG = "#05080f"
+BG_DEEP = "#02040a"
+PANEL = "#0a0f1a"
+PANEL_HI = "#111827"
+BORDER = "#1a2232"
+BORDER_HI = "#2a3548"
+TEXT = "#e8eef8"
+TEXT_DIM = "#7a8ba8"
+TEXT_MUTED = "#4a5568"
+ACCENT = "#00d9ff"           # electric blue
+ACCENT_GLOW = "rgba(0, 217, 255, 0.35)"
+POS = "#00ff88"               # neon green
+POS_GLOW = "rgba(0, 255, 136, 0.3)"
+NEG = "#ff3366"               # electric red
+NEG_GLOW = "rgba(255, 51, 102, 0.3)"
+WARN = "#ffb020"
+
+# ---- css -----------------------------------------------------------------
 
 st.markdown(
-    """
+    f"""
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
-    /* tighter layout */
-    .block-container {padding-top: 1.2rem; padding-bottom: 2rem; max-width: 1600px;}
+    :root {{
+        --bg: {BG};
+        --bg-deep: {BG_DEEP};
+        --panel: {PANEL};
+        --panel-hi: {PANEL_HI};
+        --border: {BORDER};
+        --border-hi: {BORDER_HI};
+        --text: {TEXT};
+        --text-dim: {TEXT_DIM};
+        --text-muted: {TEXT_MUTED};
+        --accent: {ACCENT};
+        --accent-glow: {ACCENT_GLOW};
+        --pos: {POS};
+        --pos-glow: {POS_GLOW};
+        --neg: {NEG};
+        --neg-glow: {NEG_GLOW};
+    }}
+    html, body, [class*="css"], [class*="st-"] {{
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+        color: var(--text) !important;
+    }}
+    .stApp {{
+        background: radial-gradient(ellipse at top, #0a1428 0%, var(--bg) 40%, var(--bg-deep) 100%);
+        background-attachment: fixed;
+    }}
+    .block-container {{
+        padding: 0.5rem 1.75rem 2.5rem 1.75rem !important;
+        max-width: 100% !important;
+    }}
 
-    /* metric cards */
-    div[data-testid="stMetric"] {
-        background: linear-gradient(135deg, #151c28 0%, #1a2332 100%);
-        border: 1px solid #1f2a3a;
-        border-radius: 12px;
-        padding: 18px 22px;
-        box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset;
-    }
-    div[data-testid="stMetricLabel"] {
-        color: #7a8ba8 !important;
-        font-size: 0.72rem !important;
-        letter-spacing: 0.05em;
+    /* kill streamlit chrome */
+    header[data-testid="stHeader"] {{ background: transparent; height: 0; }}
+    footer {{ display: none; }}
+    #MainMenu {{ display: none; }}
+    div[data-testid="stDecoration"] {{ display: none; }}
+
+    /* --- HERO HEADER --- */
+    .hero {{
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 14px 0 16px 0;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 0;
+    }}
+    .hero .brand {{
+        display: flex; align-items: center; gap: 14px;
+    }}
+    .hero .logo {{
+        width: 34px; height: 34px;
+        background: linear-gradient(135deg, var(--accent) 0%, var(--pos) 100%);
+        border-radius: 8px;
+        box-shadow: 0 0 18px var(--accent-glow);
+        display: flex; align-items: center; justify-content: center;
+        font-weight: 800; font-size: 1.05rem; color: #051018;
+    }}
+    .hero h1 {{
+        font-size: 1.25rem !important; font-weight: 700 !important;
+        letter-spacing: -0.01em; color: var(--text) !important;
+        margin: 0 !important; padding: 0 !important;
+        line-height: 1;
+    }}
+    .hero .tag {{
+        font-size: 0.66rem; font-weight: 600;
+        letter-spacing: 0.14em; text-transform: uppercase;
+        color: var(--text-muted); margin-top: 3px;
+    }}
+    .hero .clock {{
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.78rem; color: var(--text-dim);
+        padding: 6px 12px; background: var(--panel);
+        border: 1px solid var(--border); border-radius: 4px;
+        font-feature-settings: 'tnum' on;
+    }}
+    .hero .live {{
+        display: inline-block; width: 6px; height: 6px;
+        background: var(--pos); border-radius: 50%;
+        margin-right: 6px; vertical-align: middle;
+        animation: pulse 2s ease-in-out infinite;
+        box-shadow: 0 0 8px var(--pos);
+    }}
+    @keyframes pulse {{
+        0%, 100% {{ opacity: 1; }}
+        50% {{ opacity: 0.4; }}
+    }}
+
+    /* --- TICKER STRIP --- */
+    .ticker {{
+        display: flex; gap: 28px;
+        padding: 14px 18px;
+        background: linear-gradient(90deg, var(--panel) 0%, var(--panel-hi) 50%, var(--panel) 100%);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        margin: 14px 0 18px 0;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.82rem;
+        overflow-x: auto;
+        white-space: nowrap;
+    }}
+    .ticker .tick {{ display: flex; align-items: baseline; gap: 9px; }}
+    .ticker .lbl {{
+        color: var(--text-muted);
         text-transform: uppercase;
-        font-weight: 600 !important;
-    }
-    div[data-testid="stMetricValue"] {
-        font-size: 1.85rem !important;
-        font-weight: 600 !important;
-        letter-spacing: -0.02em;
-        color: #f5f7fa !important;
-    }
+        letter-spacing: 0.14em;
+        font-size: 0.62rem;
+        font-weight: 700;
+        font-family: 'Inter', sans-serif;
+    }}
+    .ticker .val {{
+        color: var(--text); font-weight: 500;
+        font-feature-settings: 'tnum' on;
+    }}
+    .ticker .pos {{ color: var(--pos); text-shadow: 0 0 6px var(--pos-glow); }}
+    .ticker .neg {{ color: var(--neg); text-shadow: 0 0 6px var(--neg-glow); }}
+    .ticker .zero {{ color: var(--text-muted); }}
 
-    /* section headers */
-    h2 {
-        font-size: 0.82rem !important;
-        text-transform: uppercase;
-        letter-spacing: 0.09em;
-        color: #7a8ba8 !important;
-        font-weight: 600;
-        margin-top: 2rem !important;
-        margin-bottom: 0.6rem !important;
-        border-bottom: 1px solid #1f2a3a;
-        padding-bottom: 0.4rem;
-    }
-
-    /* account cards */
-    .acct-card {
-        background: linear-gradient(135deg, #151c28 0%, #1a2332 100%);
-        border: 1px solid #1f2a3a;
-        border-radius: 14px;
-        padding: 18px 20px;
+    /* --- STAT TILES --- */
+    .stat {{
+        background: linear-gradient(145deg, var(--panel) 0%, var(--panel-hi) 100%);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px 18px;
         height: 100%;
-    }
-    .acct-card .title {font-weight: 600; font-size: 0.95rem; letter-spacing: -0.01em; color: #f5f7fa;}
-    .acct-card .firm {font-size: 0.7rem; color: #7a8ba8; text-transform: uppercase; letter-spacing: 0.08em; margin-top: 2px;}
-    .acct-card .balance {font-size: 1.6rem; font-weight: 600; margin-top: 12px; color: #e8eef8;}
-    .acct-card .pnl-row {display: flex; gap: 16px; margin-top: 4px; font-size: 0.82rem;}
-    .acct-card .pnl-row span {color: #7a8ba8;}
-    .acct-card .pnl-row b.pos {color: #22d3ee;}
-    .acct-card .pnl-row b.neg {color: #f87171;}
-    .acct-card .pnl-row b.zero {color: #aab4c2;}
-    .acct-card .meter {margin-top: 14px;}
-    .acct-card .meter-label {display:flex; justify-content:space-between; font-size: 0.7rem; color: #7a8ba8; margin-bottom: 4px;}
-    .acct-card .meter-bar {background: #0b0f17; border-radius: 8px; height: 6px; overflow: hidden;}
-    .acct-card .meter-fill {height: 100%; border-radius: 8px;}
-    .acct-card .badges {display: flex; gap: 6px; margin-top: 10px;}
-    .badge {
-        font-size: 0.65rem;
-        letter-spacing: 0.08em;
+        position: relative;
+        overflow: hidden;
+        transition: border-color 0.2s, transform 0.2s;
+    }}
+    .stat:hover {{
+        border-color: var(--border-hi);
+    }}
+    .stat::before {{
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0; height: 1px;
+        background: linear-gradient(90deg, transparent, var(--accent), transparent);
+        opacity: 0.25;
+    }}
+    .stat .lbl {{
+        font-size: 0.62rem; color: var(--text-muted);
+        text-transform: uppercase; letter-spacing: 0.14em;
+        font-weight: 700; margin-bottom: 8px;
+    }}
+    .stat .big {{
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 1.7rem; font-weight: 500;
+        color: var(--text); letter-spacing: -0.02em;
+        line-height: 1.1; font-feature-settings: 'tnum' on;
+    }}
+    .stat .big.pos {{ color: var(--pos); text-shadow: 0 0 14px var(--pos-glow); }}
+    .stat .big.neg {{ color: var(--neg); text-shadow: 0 0 14px var(--neg-glow); }}
+    .stat .sub {{
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.72rem;
+        margin-top: 6px; color: var(--text-dim);
+        font-feature-settings: 'tnum' on;
+    }}
+    .stat .sub.pos {{ color: var(--pos); }}
+    .stat .sub.neg {{ color: var(--neg); }}
+
+    /* --- SECTION HEADINGS --- */
+    h2 {{
+        font-size: 0.68rem !important;
         text-transform: uppercase;
-        padding: 3px 9px;
-        border-radius: 6px;
-        font-weight: 600;
-    }
-    .badge-paper {background: #1e3a5f; color: #93c5fd;}
-    .badge-challenge {background: #5e4a1b; color: #fbbf24;}
-    .badge-funded {background: #14532d; color: #4ade80;}
-    .badge-active {background: #052e1a; color: #22d3ee;}
-    .badge-halted {background: #5c1f24; color: #fca5a5;}
-    .badge-blown {background: #5c1f24; color: #f87171;}
-    .badge-passed {background: #14532d; color: #4ade80;}
+        letter-spacing: 0.18em;
+        color: var(--text-dim) !important;
+        font-weight: 700;
+        margin: 2rem 0 0.8rem 0 !important;
+        padding: 0;
+        border-bottom: none !important;
+    }}
+    h2::before {{
+        content: '—  ';
+        color: var(--accent);
+    }}
 
-    /* news pill */
-    .news-pill {
-        display: inline-block;
-        background: #1a2332;
-        border: 1px solid #2d3a4d;
-        padding: 6px 12px;
-        border-radius: 20px;
-        margin: 4px 6px 4px 0;
+    /* --- ACCOUNTS TABLE --- */
+    .acct-table {{
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.82rem;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+    }}
+    .acct-table th {{
+        text-align: left;
+        color: var(--text-muted);
+        font-weight: 700;
+        font-size: 0.62rem;
+        text-transform: uppercase;
+        letter-spacing: 0.14em;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg);
+        font-family: 'Inter', sans-serif;
+    }}
+    .acct-table td {{
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--border);
+        color: var(--text);
+        vertical-align: middle;
+        font-feature-settings: 'tnum' on;
+    }}
+    .acct-table tbody tr:last-child td {{ border-bottom: none; }}
+    .acct-table tbody tr {{ transition: background 0.15s; }}
+    .acct-table tbody tr:hover {{ background: rgba(0, 217, 255, 0.03); }}
+    .acct-table .num {{ text-align: right; }}
+    .acct-table .pos {{ color: var(--pos); }}
+    .acct-table .neg {{ color: var(--neg); }}
+    .acct-table .zero {{ color: var(--text-muted); }}
+    .acct-table .strat {{
+        font-family: 'Inter', sans-serif;
+        font-weight: 700;
+        font-size: 0.88rem;
+        color: var(--text);
+        letter-spacing: -0.01em;
+    }}
+    .acct-table .firm {{
+        font-family: 'Inter', sans-serif;
+        color: var(--text-muted);
+        font-size: 0.7rem;
+        letter-spacing: 0.04em;
+    }}
+
+    /* risk bars */
+    .riskbar {{
+        display: inline-block; width: 84px; height: 5px;
+        background: var(--bg-deep);
+        border-radius: 3px; overflow: hidden;
+        vertical-align: middle; margin-right: 10px;
+        border: 1px solid var(--border);
+    }}
+    .riskbar .fill {{
+        display: block; height: 100%;
+        border-radius: 3px;
+        transition: width 0.4s;
+    }}
+
+    /* status dot */
+    .dot {{
+        display: inline-block; width: 8px; height: 8px;
+        border-radius: 50%; margin-right: 10px;
+        vertical-align: middle;
+    }}
+    .dot.ACTIVE {{
+        background: var(--pos);
+        box-shadow: 0 0 9px var(--pos-glow);
+        animation: pulse 2.5s ease-in-out infinite;
+    }}
+    .dot.HALTED {{ background: {WARN}; }}
+    .dot.BLOWN {{ background: var(--neg); box-shadow: 0 0 9px var(--neg-glow); }}
+    .dot.PASSED {{ background: var(--accent); box-shadow: 0 0 9px var(--accent-glow); }}
+
+    /* mode tag */
+    .modetag {{
+        font-family: 'Inter', sans-serif;
+        font-size: 0.6rem; font-weight: 700;
+        letter-spacing: 0.14em;
+        padding: 3px 8px;
+        border: 1px solid var(--border-hi);
+        border-radius: 4px;
+        color: var(--text-dim);
+    }}
+    .modetag.CHALLENGE {{ color: {WARN}; border-color: {WARN}; }}
+    .modetag.FUNDED {{ color: var(--pos); border-color: var(--pos); }}
+
+    /* --- TABS --- */
+    div[data-baseweb="tab-list"] {{
+        gap: 0 !important;
+        border-bottom: 1px solid var(--border) !important;
+        margin-top: 18px;
+    }}
+    button[data-baseweb="tab"] {{
+        font-family: 'Inter', sans-serif !important;
+        font-size: 0.7rem !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--text-muted) !important;
+        padding: 12px 22px !important;
+        border-bottom: 2px solid transparent !important;
+        background: transparent !important;
+    }}
+    button[data-baseweb="tab"][aria-selected="true"] {{
+        color: var(--accent) !important;
+        border-bottom: 2px solid var(--accent) !important;
+        text-shadow: 0 0 10px var(--accent-glow);
+    }}
+
+    /* dataframes */
+    .stDataFrame {{
+        font-family: 'JetBrains Mono', monospace !important;
+        font-size: 0.8rem !important;
+        border-radius: 8px;
+        overflow: hidden;
+    }}
+
+    /* selectbox */
+    .stSelectbox > div > div {{
+        background: var(--panel) !important;
+        border: 1px solid var(--border) !important;
+        border-radius: 6px !important;
+    }}
+
+    /* scrollbar */
+    ::-webkit-scrollbar {{ width: 10px; height: 10px; }}
+    ::-webkit-scrollbar-track {{ background: var(--bg); }}
+    ::-webkit-scrollbar-thumb {{ background: var(--border-hi); border-radius: 5px; }}
+    ::-webkit-scrollbar-thumb:hover {{ background: var(--text-muted); }}
+
+    /* news-row */
+    .news-row {{
+        display: grid;
+        grid-template-columns: 80px 110px 1fr 170px;
+        gap: 18px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+        font-family: 'Inter', sans-serif;
+        font-size: 0.86rem;
+        align-items: center;
+    }}
+    .news-row:first-child {{ border-top-left-radius: 10px; border-top-right-radius: 10px; }}
+    .news-row:last-child {{ border-bottom: 1px solid var(--border); border-bottom-left-radius: 10px; border-bottom-right-radius: 10px; }}
+    .news-row .ccy {{
+        font-family: 'JetBrains Mono', monospace;
+        color: var(--accent); font-weight: 600;
+        letter-spacing: 0.08em;
+    }}
+    .news-row .impact {{
+        display: inline-flex; align-items: center;
+        font-size: 0.62rem;
+        text-transform: uppercase; letter-spacing: 0.14em;
+        color: {WARN}; font-weight: 700;
+    }}
+    .news-row .impact::before {{
+        content: ''; display: inline-block;
+        width: 6px; height: 6px; background: {WARN};
+        border-radius: 50%; margin-right: 6px;
+        box-shadow: 0 0 6px {WARN};
+    }}
+    .news-row .event {{
+        color: var(--text);
+        font-weight: 500;
+    }}
+    .news-row .time {{
+        font-family: 'JetBrains Mono', monospace;
+        color: var(--text-dim);
+        text-align: right;
         font-size: 0.78rem;
-        color: #e8eef8;
-    }
-    .news-pill .ccy {color: #22d3ee; font-weight: 600; margin-right: 6px;}
-    .news-pill .time {color: #7a8ba8; margin-left: 8px;}
+    }}
 
-    /* tabs */
-    button[data-baseweb="tab"] {
-        font-weight: 600 !important;
-        letter-spacing: 0.02em;
-    }
+    /* empty state */
+    .empty {{
+        padding: 28px;
+        background: var(--panel);
+        border: 1px dashed var(--border-hi);
+        border-radius: 10px;
+        color: var(--text-dim);
+        font-family: 'Inter', sans-serif;
+        font-size: 0.9rem;
+        text-align: center;
+    }}
+    .empty code {{
+        background: var(--bg-deep);
+        padding: 2px 8px;
+        color: var(--accent);
+        border-radius: 4px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.82rem;
+    }}
+
+    /* sparkline container */
+    .spark-cell {{
+        padding: 0 !important;
+        width: 120px;
+    }}
+
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# ---- data fetchers (all run inside the session context) -----------------
+# ---- data ----------------------------------------------------------------
 
 
 def _accounts() -> list[dict]:
@@ -174,7 +477,7 @@ def _accounts() -> list[dict]:
         ]
 
 
-def _recent_trades(limit: int = 100) -> pd.DataFrame:
+def _recent_trades(limit: int = 500) -> pd.DataFrame:
     with get_session() as s:
         rows = (
             s.execute(select(Trade).order_by(Trade.entry_time.desc()).limit(limit))
@@ -196,7 +499,6 @@ def _recent_trades(limit: int = 100) -> pd.DataFrame:
                 "pnl_pct": float(t.pnl_pct) if t.pnl_pct is not None else None,
                 "regime": t.market_regime.value if t.market_regime else None,
                 "exit_reason": t.exit_reason.value if t.exit_reason else None,
-                "notes": (t.notes or "")[:200],
             }
             for t in rows
         ]
@@ -218,9 +520,9 @@ def _backtest_runs(limit: int = 20) -> pd.DataFrame:
                 "end": r.end_date,
                 "budget": float(r.budget),
                 "trades": r.trade_count,
-                "return_pct": float(r.total_return_pct) if r.total_return_pct else None,
+                "return": float(r.total_return_pct) if r.total_return_pct else None,
                 "sharpe": float(r.sharpe) if r.sharpe else None,
-                "max_dd_pct": float(r.max_drawdown_pct) if r.max_drawdown_pct else None,
+                "max_dd": float(r.max_drawdown_pct) if r.max_drawdown_pct else None,
                 "run_at": r.run_at,
             }
             for r in rows
@@ -290,147 +592,116 @@ def _performance(window_days: int = 0) -> pd.DataFrame:
     return pd.DataFrame(data)
 
 
-# ---- components ---------------------------------------------------------
+# ---- plotly helpers ------------------------------------------------------
 
 
-def kpi_row(accounts: list[dict], trades: pd.DataFrame) -> None:
-    total_balance = sum(a["balance"] for a in accounts)
-    daily_pnl = sum(a["daily_pnl"] for a in accounts)
-    total_start = sum(a["starting_balance"] for a in accounts)
-    total_return = (total_balance - total_start) / total_start if total_start else 0
-    active = sum(1 for a in accounts if a["status"] == "ACTIVE")
-    halted = sum(1 for a in accounts if a["status"] in ("HALTED", "BLOWN"))
-
-    if not trades.empty and "pnl" in trades.columns:
-        closed = trades[trades["pnl"].notna()]
-        win_rate = (closed["pnl"] > 0).mean() if len(closed) else None
-        trade_count = len(closed)
-    else:
-        win_rate = None
-        trade_count = 0
-
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
-    c1.metric("Total Capital", f"${total_balance:,.0f}", f"{total_return:+.2%}" if total_start else None)
-    c2.metric(
-        "Today's P&L",
-        f"${daily_pnl:,.2f}",
-        delta=f"{daily_pnl:+.2f}" if daily_pnl else "—",
-        delta_color="normal",
+def _chart_layout(height: int = 340) -> dict:
+    return dict(
+        template="plotly_dark",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        height=height,
+        margin=dict(l=10, r=10, t=10, b=10),
+        font=dict(family="JetBrains Mono, monospace", color=TEXT, size=11),
+        legend=dict(
+            orientation="h", y=-0.18,
+            bgcolor="rgba(0,0,0,0)",
+            font=dict(family="Inter", size=11, color=TEXT_DIM),
+        ),
+        xaxis=dict(
+            gridcolor=BORDER, showline=False, zeroline=False,
+            tickfont=dict(family="JetBrains Mono", size=10, color=TEXT_DIM),
+        ),
+        yaxis=dict(
+            gridcolor=BORDER, showline=False, zeroline=False,
+            tickfont=dict(family="JetBrains Mono", size=10, color=TEXT_DIM),
+        ),
+        hoverlabel=dict(
+            bgcolor=PANEL_HI, bordercolor=BORDER_HI,
+            font=dict(family="JetBrains Mono", color=TEXT, size=11),
+        ),
     )
-    c3.metric("Active Strategies", f"{active}/{len(accounts)}", delta=f"-{halted} halted" if halted else None)
-    c4.metric("Closed Trades", f"{trade_count:,}")
-    c5.metric("Win Rate", f"{win_rate:.1%}" if win_rate is not None else "—")
-    total_dd = max((a["drawdown_pct"] for a in accounts), default=0)
-    c6.metric("Max Drawdown", f"{total_dd:.2%}" if total_dd else "—")
 
 
-def account_card(a: dict) -> str:
-    mode_badge_class = {
-        "PAPER": "badge-paper",
-        "CHALLENGE": "badge-challenge",
-        "FUNDED": "badge-funded",
-    }.get(a["mode"], "badge-paper")
-    status_class = {
-        "ACTIVE": "badge-active",
-        "HALTED": "badge-halted",
-        "BLOWN": "badge-blown",
-        "PASSED": "badge-passed",
-    }.get(a["status"], "badge-active")
-
-    pnl = a["daily_pnl"]
-    pnl_class = "pos" if pnl > 0 else "neg" if pnl < 0 else "zero"
-    pnl_display = f"{pnl:+,.2f}" if pnl else "0.00"
-
-    week_pnl = a["weekly_pnl"]
-    week_class = "pos" if week_pnl > 0 else "neg" if week_pnl < 0 else "zero"
-
-    # Risk meters: daily loss used vs mode's halt limit, DD vs stop limit.
-    mode_rules = MODE_RULES[a["mode"]]
-    daily_loss_pct = abs(min(pnl, 0)) / a["starting_balance"] if a["starting_balance"] else 0
-    daily_cap = float(mode_rules.max_daily_loss_halt_pct)
-    daily_used = min(daily_loss_pct / daily_cap, 1.0) if daily_cap else 0
-
-    dd_cap = float(mode_rules.max_total_drawdown_stop_pct)
-    dd_used = min(a["drawdown_pct"] / dd_cap, 1.0) if dd_cap else 0
-
-    def bar_color(used: float) -> str:
-        if used < 0.5:
-            return "#22d3ee"
-        if used < 0.8:
-            return "#fbbf24"
-        return "#f87171"
-
-    return f"""
-    <div class="acct-card">
-        <div class="title">{a["strategy"]}</div>
-        <div class="firm">{a["firm"]}</div>
-        <div class="balance">${a["balance"]:,.0f}</div>
-        <div class="pnl-row">
-            <span>Day <b class="{pnl_class}">{pnl_display}</b></span>
-            <span>Week <b class="{week_class}">{week_pnl:+,.2f}</b></span>
-        </div>
-        <div class="meter">
-            <div class="meter-label"><span>Daily loss {daily_loss_pct:.2%}</span><span>cap {daily_cap:.1%}</span></div>
-            <div class="meter-bar"><div class="meter-fill" style="width:{daily_used*100:.1f}%; background:{bar_color(daily_used)};"></div></div>
-        </div>
-        <div class="meter">
-            <div class="meter-label"><span>Drawdown {a["drawdown_pct"]:.2%}</span><span>stop {dd_cap:.1%}</span></div>
-            <div class="meter-bar"><div class="meter-fill" style="width:{dd_used*100:.1f}%; background:{bar_color(dd_used)};"></div></div>
-        </div>
-        <div class="badges">
-            <span class="badge {mode_badge_class}">{a["mode"]}</span>
-            <span class="badge {status_class}">{a["status"]}</span>
-        </div>
-    </div>
-    """
+def _empty_chart(msg: str, height: int = 280) -> go.Figure:
+    fig = go.Figure()
+    fig.add_annotation(
+        text=msg, xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+        font=dict(family="Inter", color=TEXT_MUTED, size=12),
+    )
+    fig.update_layout(**_chart_layout(height))
+    fig.update_xaxes(visible=False)
+    fig.update_yaxes(visible=False)
+    return fig
 
 
-def equity_curve(trades: pd.DataFrame, accounts: list[dict]) -> go.Figure:
-    """Build cumulative P&L by strategy from the trade log."""
+def hero_equity(trades: pd.DataFrame, accounts: list[dict]) -> go.Figure:
+    """Big top-of-page equity chart — aggregate NAV over time."""
     if trades.empty or "exit_time" not in trades.columns:
         return _empty_chart(
-            "No closed trades yet. Run a strategy or a backtest to populate the equity curve."
+            "Live equity curve appears once strategies begin trading. "
+            "Run the RSI2 strategy (`python run/run_rsi2_spy.py`) or a backtest to populate.",
+            height=300,
         )
     closed = trades[trades["pnl"].notna() & trades["exit_time"].notna()].copy()
     if closed.empty:
-        return _empty_chart("No closed trades yet.")
+        return _empty_chart("Live equity curve appears once strategies begin trading.", height=300)
+    closed = closed.sort_values("exit_time")
+    total_start = sum(a["starting_balance"] for a in accounts)
+    closed["cum"] = closed["pnl"].cumsum()
+    nav = total_start + closed["cum"]
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=closed["exit_time"], y=nav,
+            mode="lines",
+            line=dict(color=ACCENT, width=2.2),
+            fill="tozeroy",
+            fillcolor=f"rgba(0, 217, 255, 0.08)",
+            hovertemplate="%{x|%Y-%m-%d}<br>$%{y:,.0f}<extra></extra>",
+            name="NAV",
+        )
+    )
+    fig.update_layout(**_chart_layout(280))
+    fig.update_yaxes(tickprefix="$", tickformat=",.0f")
+    return fig
+
+
+def strategy_equity(trades: pd.DataFrame, accounts: list[dict]) -> go.Figure:
+    if trades.empty:
+        return _empty_chart("No closed trades yet.", height=320)
+    closed = trades[trades["pnl"].notna() & trades["exit_time"].notna()].copy()
+    if closed.empty:
+        return _empty_chart("No closed trades yet.", height=320)
     closed = closed.sort_values("exit_time")
     closed["equity"] = closed.groupby("strategy")["pnl"].cumsum()
 
+    palette = [ACCENT, POS, "#a78bfa", WARN, "#f472b6", "#60a5fa"]
     fig = go.Figure()
-    for strat, grp in closed.groupby("strategy"):
-        start_balance = next(
+    for i, (strat, grp) in enumerate(closed.groupby("strategy")):
+        start = next(
             (a["starting_balance"] for a in accounts if a["strategy"] == strat), 100000
         )
         fig.add_trace(
             go.Scatter(
-                x=grp["exit_time"],
-                y=start_balance + grp["equity"],
-                mode="lines",
-                name=strat,
+                x=grp["exit_time"], y=start + grp["equity"],
+                mode="lines", name=strat,
+                line=dict(color=palette[i % len(palette)], width=1.8),
                 hovertemplate="%{x|%Y-%m-%d}<br>$%{y:,.0f}<extra>%{fullData.name}</extra>",
             )
         )
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#0b0f17",
-        plot_bgcolor="#0b0f17",
-        height=360,
-        margin=dict(l=10, r=10, t=10, b=10),
-        legend=dict(orientation="h", y=-0.18),
-        xaxis=dict(gridcolor="#1f2a3a", showline=False),
-        yaxis=dict(gridcolor="#1f2a3a", showline=False, tickprefix="$", tickformat=",.0f"),
-        hoverlabel=dict(bgcolor="#141a24"),
-    )
+    fig.update_layout(**_chart_layout(320))
+    fig.update_yaxes(tickprefix="$", tickformat=",.0f")
     return fig
 
 
 def drawdown_chart(trades: pd.DataFrame) -> go.Figure:
     if trades.empty or "exit_time" not in trades.columns:
-        return _empty_chart("No data.")
+        return _empty_chart("No data.", height=200)
     closed = trades[trades["pnl"].notna() & trades["exit_time"].notna()].copy()
     if closed.empty:
-        return _empty_chart("No data.")
+        return _empty_chart("No data.", height=200)
     closed = closed.sort_values("exit_time")
     closed["cum_pnl"] = closed.groupby("strategy")["pnl"].cumsum()
     closed["peak"] = closed.groupby("strategy")["cum_pnl"].cummax()
@@ -440,297 +711,348 @@ def drawdown_chart(trades: pd.DataFrame) -> go.Figure:
     for strat, grp in closed.groupby("strategy"):
         fig.add_trace(
             go.Scatter(
-                x=grp["exit_time"],
-                y=grp["dd"],
-                mode="lines",
-                fill="tozeroy",
+                x=grp["exit_time"], y=grp["dd"],
+                mode="lines", fill="tozeroy",
                 name=strat,
-                line=dict(width=1),
+                line=dict(width=1.3, color=NEG),
+                fillcolor="rgba(255, 51, 102, 0.15)",
             )
         )
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#0b0f17",
-        plot_bgcolor="#0b0f17",
-        height=260,
-        margin=dict(l=10, r=10, t=10, b=10),
-        legend=dict(orientation="h", y=-0.25),
-        xaxis=dict(gridcolor="#1f2a3a"),
-        yaxis=dict(gridcolor="#1f2a3a", tickprefix="$", tickformat=",.0f"),
-    )
+    fig.update_layout(**_chart_layout(200))
+    fig.update_yaxes(tickprefix="$", tickformat=",.0f")
     return fig
 
 
 def heatmap_by_hour_dow(strategy_name: str) -> go.Figure:
-    hours = attribute_by_hour(strategy_name, window_days=90)
-    dows = attribute_by_day_of_week(strategy_name, window_days=90)
-    if hours.empty or dows.empty:
-        return _empty_chart(
-            "No attribution data yet — attribution needs closed trades tagged with hour/day-of-week."
-        )
-    # Build a 7x24 matrix of avg_pnl from raw trades.
     from trading_bot.learning.attribution import _closed_trades
-
     df = _closed_trades(strategy_name, window_days=90)
     if df.empty:
-        return _empty_chart("No closed trades yet for this strategy.")
-    df["day_name"] = df["day_of_week"].apply(lambda d: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][d] if 0 <= d <= 6 else "?")
+        return _empty_chart(f"Attribution heatmap appears once {strategy_name} has closed trades.")
+    df["day_name"] = df["day_of_week"].apply(
+        lambda d: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][d] if 0 <= d <= 6 else "?"
+    )
     pivot = df.pivot_table(index="day_name", columns="hour", values="pnl", aggfunc="mean")
     days_order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     pivot = pivot.reindex([d for d in days_order if d in pivot.index])
     fig = go.Figure(
         data=go.Heatmap(
-            z=pivot.values,
-            x=pivot.columns,
-            y=pivot.index,
-            colorscale=[[0, "#f87171"], [0.5, "#141a24"], [1, "#22d3ee"]],
-            zmid=0,
-            hovertemplate="%{y} %{x}:00<br>avg P&L: $%{z:,.2f}<extra></extra>",
+            z=pivot.values, x=pivot.columns, y=pivot.index,
+            colorscale=[[0, NEG], [0.5, "#0a0f1a"], [1, POS]],
+            zmid=0, showscale=False,
+            hovertemplate="%{y} · %{x}:00<br>avg $%{z:,.2f}<extra></extra>",
         )
     )
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#0b0f17",
-        plot_bgcolor="#0b0f17",
-        height=280,
-        margin=dict(l=10, r=10, t=10, b=10),
-        xaxis=dict(title="Hour of entry", gridcolor="#1f2a3a"),
-        yaxis=dict(title="", gridcolor="#1f2a3a"),
-    )
+    fig.update_layout(**_chart_layout(280))
     return fig
 
 
-def _empty_chart(msg: str) -> go.Figure:
-    fig = go.Figure()
-    fig.add_annotation(
-        text=msg,
-        xref="paper",
-        yref="paper",
-        x=0.5,
-        y=0.5,
-        showarrow=False,
-        font=dict(color="#7a8ba8", size=13),
-    )
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="#0b0f17",
-        plot_bgcolor="#0b0f17",
-        height=260,
-        margin=dict(l=10, r=10, t=10, b=10),
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False),
-    )
-    return fig
-
-
-# ---- page ---------------------------------------------------------------
-
+# ==========================================================================
+# PAGE
+# ==========================================================================
 
 accounts = _accounts()
-trades = _recent_trades(limit=500)
-runs = _backtest_runs(limit=20)
+trades = _recent_trades(500)
+runs = _backtest_runs(20)
 news = _news()
 
-# Header row
-title_col, spacer, refresh_col = st.columns([4, 2, 1])
-with title_col:
-    st.markdown(
-        "<div style='display:flex; align-items:baseline; gap:14px;'>"
-        "<div style='font-size:1.45rem; font-weight:700; letter-spacing:-0.02em; color:#f5f7fa;'>"
-        "◆ Prop Firm Trading</div>"
-        "<div style='font-size:0.78rem; color:#7a8ba8;'>"
-        f"last updated {datetime.now():%H:%M:%S}</div></div>",
-        unsafe_allow_html=True,
-    )
-with refresh_col:
-    auto = st.toggle("Auto-refresh 30s", value=False)
-    if auto:
-        import time
-
-        time.sleep(30)
-        st.rerun()
-
-# KPI strip
-kpi_row(accounts, trades)
-
-# Account cards
-st.markdown("## Accounts")
-cols = st.columns(3)
-for idx, a in enumerate(accounts):
-    with cols[idx % 3]:
-        st.markdown(account_card(a), unsafe_allow_html=True)
-
-# Tabs
-tab_perf, tab_attr, tab_cull, tab_bt, tab_news, tab_trades = st.tabs(
-    ["Equity", "Attribution", "Culling", "Backtests", "News", "Trades"]
+# --- hero header ---
+st.markdown(
+    f"""
+    <div class="hero">
+        <div class="brand">
+            <div class="logo">◆</div>
+            <div>
+                <h1>Trading Desk</h1>
+                <div class="tag">Prop firm · 6 strategies · paper</div>
+            </div>
+        </div>
+        <div class="clock"><span class="live"></span>{datetime.now(timezone.utc):%Y-%m-%d · %H:%M:%S UTC}</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
-with tab_perf:
-    st.markdown("## Equity by strategy")
-    st.plotly_chart(equity_curve(trades, accounts), width="stretch", config={"displayModeBar": False})
+# --- ticker strip ---
+def _ticker() -> str:
+    total_balance = sum(a["balance"] for a in accounts)
+    total_start = sum(a["starting_balance"] for a in accounts)
+    total_pnl = total_balance - total_start
+    total_ret = total_pnl / total_start if total_start else 0
+    daily_pnl = sum(a["daily_pnl"] for a in accounts)
+    weekly_pnl = sum(a["weekly_pnl"] for a in accounts)
+    active = sum(1 for a in accounts if a["status"] == "ACTIVE")
+    halted = sum(1 for a in accounts if a["status"] in ("HALTED", "BLOWN"))
+    max_dd = max((a["drawdown_pct"] for a in accounts), default=0)
 
-    st.markdown("## Drawdown (underwater curve)")
+    def cls(v):
+        return "pos" if v > 0 else "neg" if v < 0 else "zero"
+
+    return f"""
+    <div class="ticker">
+        <div class="tick"><span class="lbl">NAV</span>
+            <span class="val">${total_balance:,.0f}</span>
+            <span class="val {cls(total_ret)}">{total_ret:+.2%}</span></div>
+        <div class="tick"><span class="lbl">DAY</span>
+            <span class="val {cls(daily_pnl)}">${daily_pnl:+,.2f}</span></div>
+        <div class="tick"><span class="lbl">WK</span>
+            <span class="val {cls(weekly_pnl)}">${weekly_pnl:+,.2f}</span></div>
+        <div class="tick"><span class="lbl">P&L</span>
+            <span class="val {cls(total_pnl)}">${total_pnl:+,.2f}</span></div>
+        <div class="tick"><span class="lbl">ACTIVE</span>
+            <span class="val">{active}/{len(accounts)}</span></div>
+        <div class="tick"><span class="lbl">HALTED</span>
+            <span class="val {"neg" if halted else "zero"}">{halted}</span></div>
+        <div class="tick"><span class="lbl">MAX DD</span>
+            <span class="val">{max_dd:.2%}</span></div>
+    </div>
+    """
+
+st.markdown(_ticker(), unsafe_allow_html=True)
+
+# --- hero equity chart ---
+col_l, col_r = st.columns([3, 2])
+with col_l:
+    st.markdown('<div style="color:' + TEXT_DIM + '; font-size:0.68rem; letter-spacing:0.18em; text-transform:uppercase; font-weight:700; margin-bottom:4px;">Portfolio NAV</div>', unsafe_allow_html=True)
+    st.plotly_chart(hero_equity(trades, accounts), width="stretch", config={"displayModeBar": False})
+
+with col_r:
+    st.markdown('<div style="color:' + TEXT_DIM + '; font-size:0.68rem; letter-spacing:0.18em; text-transform:uppercase; font-weight:700; margin-bottom:4px;">Stats</div>', unsafe_allow_html=True)
+    closed_trades = trades[trades["pnl"].notna()] if not trades.empty else pd.DataFrame()
+    n_trades = len(closed_trades)
+    win_rate = (closed_trades["pnl"] > 0).mean() if n_trades else None
+    avg_win = closed_trades[closed_trades["pnl"] > 0]["pnl"].mean() if n_trades and (closed_trades["pnl"] > 0).any() else None
+    avg_loss = closed_trades[closed_trades["pnl"] < 0]["pnl"].mean() if n_trades and (closed_trades["pnl"] < 0).any() else None
+    total_pnl = closed_trades["pnl"].sum() if n_trades else 0.0
+
+    def _tile(label, big, sub="", big_class=""):
+        return f"""
+        <div class="stat" style="margin-bottom:10px;">
+            <div class="lbl">{label}</div>
+            <div class="big {big_class}">{big}</div>
+            <div class="sub">{sub}&nbsp;</div>
+        </div>
+        """
+
+    tiles_html = (
+        _tile("Closed Trades", f"{n_trades:,}", f"{int(win_rate*n_trades) if win_rate else 0}W / {int((1-win_rate)*n_trades) if win_rate else 0}L" if win_rate is not None else "—")
+        + _tile(
+            "Total P&L",
+            f"${total_pnl:+,.2f}" if total_pnl else "—",
+            f"win rate {win_rate:.1%}" if win_rate is not None else "",
+            "pos" if total_pnl > 0 else "neg" if total_pnl < 0 else "",
+        )
+        + _tile(
+            "Avg Winner",
+            f"${avg_win:,.2f}" if avg_win else "—",
+            f"Avg Loser: ${avg_loss:,.2f}" if avg_loss else "",
+            "pos" if avg_win else "",
+        )
+    )
+    st.markdown(tiles_html, unsafe_allow_html=True)
+
+# --- accounts table ---
+st.markdown("## Accounts")
+
+def account_row(a: dict) -> str:
+    mode_rules = MODE_RULES[a["mode"]]
+    pnl = a["daily_pnl"]
+    pnl_cls = "pos" if pnl > 0 else "neg" if pnl < 0 else "zero"
+    week_pnl = a["weekly_pnl"]
+    week_cls = "pos" if week_pnl > 0 else "neg" if week_pnl < 0 else "zero"
+
+    daily_loss_pct = abs(min(pnl, 0)) / a["starting_balance"] if a["starting_balance"] else 0
+    daily_cap = float(mode_rules.max_daily_loss_halt_pct)
+    daily_used = min(daily_loss_pct / daily_cap, 1.0) if daily_cap else 0
+
+    dd_cap = float(mode_rules.max_total_drawdown_stop_pct)
+    dd_used = min(a["drawdown_pct"] / dd_cap, 1.0) if dd_cap else 0
+
+    def bar(used):
+        col = POS if used < 0.5 else WARN if used < 0.8 else NEG
+        return col
+
+    return f"""
+    <tr>
+        <td>
+            <span class="dot {a["status"]}"></span>
+            <span class="strat">{a["strategy"]}</span><br>
+            <span class="firm">{a["firm"]}</span>
+        </td>
+        <td><span class="modetag {a["mode"]}">{a["mode"]}</span></td>
+        <td class="num">${a["balance"]:,.0f}</td>
+        <td class="num {pnl_cls}">{pnl:+,.2f}</td>
+        <td class="num {week_cls}">{week_pnl:+,.2f}</td>
+        <td class="num">
+            <span class="riskbar"><span class="fill" style="width:{daily_used*100:.0f}%; background:{bar(daily_used)};"></span></span>
+            <span style="color:{TEXT_DIM};">{daily_loss_pct:.2%}</span>
+        </td>
+        <td class="num">
+            <span class="riskbar"><span class="fill" style="width:{dd_used*100:.0f}%; background:{bar(dd_used)};"></span></span>
+            <span style="color:{TEXT_DIM};">{a["drawdown_pct"]:.2%}</span>
+        </td>
+    </tr>
+    """
+
+rows_html = "".join(account_row(a) for a in accounts)
+st.markdown(
+    f"""
+    <table class="acct-table">
+        <thead>
+            <tr>
+                <th>Strategy</th>
+                <th>Mode</th>
+                <th class="num">NAV</th>
+                <th class="num">Day P&amp;L</th>
+                <th class="num">Week P&amp;L</th>
+                <th class="num">Daily Loss · Cap</th>
+                <th class="num">Drawdown · Cap</th>
+            </tr>
+        </thead>
+        <tbody>{rows_html}</tbody>
+    </table>
+    """,
+    unsafe_allow_html=True,
+)
+
+# --- tabs ---
+tab_equity, tab_attr, tab_bt, tab_news, tab_trades, tab_cull = st.tabs(
+    ["Equity", "Attribution", "Backtests", "News", "Trades", "Culling"]
+)
+
+def empty_msg(cmd: str, hint: str) -> None:
+    st.markdown(
+        f'<div class="empty">{hint}<br><br>'
+        f'Run <code>{cmd}</code> to populate.</div>',
+        unsafe_allow_html=True,
+    )
+
+with tab_equity:
+    st.markdown("## Equity by strategy")
+    st.plotly_chart(strategy_equity(trades, accounts), width="stretch", config={"displayModeBar": False})
+    st.markdown("## Underwater drawdown")
     st.plotly_chart(drawdown_chart(trades), width="stretch", config={"displayModeBar": False})
 
-    st.markdown("## Rolling metrics (nightly snapshot)")
-    window_label = st.selectbox(
-        "Window",
-        [("All time", 0), ("Last 90 days", 90), ("Last 30 days", 30)],
-        format_func=lambda x: x[0],
-    )
+    st.markdown("## Rolling snapshot")
+    window_opts = [("ALL TIME", 0), ("90D", 90), ("30D", 30)]
+    window_label = st.selectbox("Window", window_opts, format_func=lambda x: x[0], label_visibility="collapsed")
     perf = _performance(window_days=window_label[1])
     if perf.empty:
-        st.info("Run `make nightly` once there are closed trades to populate this view.")
+        empty_msg("make nightly", "Per-strategy Sharpe, Sortino, profit factor, expectancy and max-DD populate after the first closed trades.")
     else:
-        st.dataframe(perf, width="stretch")
+        st.dataframe(perf, width="stretch", hide_index=True)
 
 with tab_attr:
-    st.markdown("## Where does each strategy actually make money?")
+    st.markdown("## Where the P&L comes from")
     strategies = sorted({a["strategy"] for a in accounts})
-    strat = st.selectbox("Strategy", strategies)
-    col_l, col_r = st.columns(2)
+    strat = st.selectbox("Strategy", strategies, label_visibility="collapsed")
+    col_l, col_r = st.columns([2, 1])
     with col_l:
-        st.markdown("**Heatmap: hour × day of week (avg P&L)**")
-        st.plotly_chart(
-            heatmap_by_hour_dow(strat),
-            width="stretch",
-            config={"displayModeBar": False},
-        )
+        st.markdown(f'<div style="color:{TEXT_DIM}; font-size:0.66rem; letter-spacing:0.18em; text-transform:uppercase; font-weight:700; margin-bottom:6px;">Hour × Day-of-week · avg P&amp;L</div>', unsafe_allow_html=True)
+        st.plotly_chart(heatmap_by_hour_dow(strat), width="stretch", config={"displayModeBar": False})
     with col_r:
-        st.markdown("**By market regime**")
+        st.markdown(f'<div style="color:{TEXT_DIM}; font-size:0.66rem; letter-spacing:0.18em; text-transform:uppercase; font-weight:700; margin-bottom:6px;">By market regime</div>', unsafe_allow_html=True)
         regime = attribute_by_regime(strat, window_days=90)
         if regime.empty:
-            st.info("No regime-tagged trades yet.")
+            empty_msg("python run/run_rsi2_spy.py", "Regime-tagged trades appear after live runs.")
         else:
             fig = px.bar(
-                regime.reset_index(),
-                x="market_regime",
-                y="total_pnl",
+                regime.reset_index(), x="market_regime", y="total_pnl",
                 color="total_pnl",
-                color_continuous_scale=[[0, "#f87171"], [0.5, "#141a24"], [1, "#22d3ee"]],
+                color_continuous_scale=[[0, NEG], [0.5, PANEL], [1, POS]],
             )
-            fig.update_layout(
-                template="plotly_dark",
-                paper_bgcolor="#0b0f17",
-                plot_bgcolor="#0b0f17",
-                height=260,
-                margin=dict(l=10, r=10, t=10, b=10),
-                xaxis=dict(gridcolor="#1f2a3a", title=""),
-                yaxis=dict(gridcolor="#1f2a3a", title="", tickprefix="$"),
-                coloraxis_showscale=False,
-            )
+            fig.update_layout(**_chart_layout(280))
+            fig.update_traces(marker_line_width=0)
+            fig.update_layout(coloraxis_showscale=False, xaxis_title="", yaxis_title="", yaxis_tickprefix="$")
             st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
-
-with tab_cull:
-    st.markdown("## Culling verdicts — spec §9 decision framework")
-    st.caption(
-        "Month 3: kill if DD > 8%, flag if Sharpe < 0.5. "
-        "Promote: Sharpe > 1, win_rate > 55%, DD < 5%, ≥20 trades. "
-        "Verdicts surface for human review — never auto-applied to account status."
-    )
-    all_time = _performance(window_days=0)
-    if all_time.empty:
-        st.info("Run `make nightly` after the first paper trades close.")
-    else:
-        from trading_bot.learning.performance import PerformanceMetrics
-
-        rows = []
-        for _, r in all_time.iterrows():
-            m = PerformanceMetrics(
-                strategy_name=r["strategy"],
-                firm=r["firm"],
-                window_days=0,
-                trade_count=int(r["trades"]),
-                win_rate=r["win_rate"],
-                avg_winner=None,
-                avg_loser=None,
-                profit_factor=r["profit_factor"],
-                expectancy=r["expectancy"],
-                sharpe=r["sharpe"],
-                sortino=r["sortino"],
-                max_drawdown_pct=r["max_dd"],
-                recovery_factor=None,
-                best_day_pnl=r["best_day"],
-                worst_day_pnl=r["worst_day"],
-            )
-            m3 = month_3_decision(m)
-            promo = promotion_decision(m)
-            rows.append(
-                {
-                    "strategy": m.strategy_name,
-                    "month 3": m3.verdict.value,
-                    "month 3 reason": m3.reason,
-                    "promotion": promo.verdict.value,
-                    "promotion reason": promo.reason,
-                }
-            )
-        st.dataframe(pd.DataFrame(rows), width="stretch")
 
 with tab_bt:
     st.markdown("## Backtest history")
     if runs.empty:
-        st.info("Run `make backtest-rsi2` (or `python scripts/backtest.py ...`).")
+        empty_msg("make backtest-rsi2", "Historical backtest runs with Sharpe, return, max DD and trade count.")
     else:
-        st.dataframe(
-            runs.style.format(
-                {
-                    "budget": "${:,.0f}",
-                    "return_pct": "{:+.2%}",
-                    "sharpe": "{:+.2f}",
-                    "max_dd_pct": "{:.2%}",
-                    "run_at": lambda d: d.strftime("%Y-%m-%d %H:%M") if pd.notna(d) else "",
-                }
-            ),
-            width="stretch",
-        )
-        latest_ret = runs.dropna(subset=["return_pct"]).head(10)
+        disp = runs.copy()
+        disp["budget"] = disp["budget"].map(lambda x: f"${x:,.0f}")
+        disp["return"] = disp["return"].map(lambda x: f"{x:+.2%}" if pd.notna(x) else "—")
+        disp["sharpe"] = disp["sharpe"].map(lambda x: f"{x:+.2f}" if pd.notna(x) else "—")
+        disp["max_dd"] = disp["max_dd"].map(lambda x: f"{x:.2%}" if pd.notna(x) else "—")
+        disp["run_at"] = disp["run_at"].map(lambda d: d.strftime("%Y-%m-%d %H:%M") if pd.notna(d) else "")
+        st.dataframe(disp, width="stretch", hide_index=True)
+
+        latest_ret = runs.dropna(subset=["return"]).head(10)
         if not latest_ret.empty:
             fig = px.bar(
-                latest_ret,
-                x="strategy",
-                y="return_pct",
-                color="return_pct",
-                color_continuous_scale=[[0, "#f87171"], [0.5, "#141a24"], [1, "#22d3ee"]],
-                hover_data=["start", "end", "trades", "sharpe", "max_dd_pct"],
+                latest_ret, x="strategy", y="return",
+                color="return",
+                color_continuous_scale=[[0, NEG], [0.5, PANEL], [1, POS]],
+                hover_data=["start", "end", "trades", "sharpe", "max_dd"],
             )
-            fig.update_layout(
-                template="plotly_dark",
-                paper_bgcolor="#0b0f17",
-                plot_bgcolor="#0b0f17",
-                height=300,
-                margin=dict(l=10, r=10, t=10, b=10),
-                xaxis=dict(gridcolor="#1f2a3a", title=""),
-                yaxis=dict(gridcolor="#1f2a3a", title="Return", tickformat=".1%"),
-                coloraxis_showscale=False,
-            )
+            fig.update_layout(**_chart_layout(280))
+            fig.update_traces(marker_line_width=0)
+            fig.update_layout(coloraxis_showscale=False, xaxis_title="", yaxis_title="", yaxis_tickformat=".1%")
             st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
 
 with tab_news:
-    st.markdown("## Upcoming HIGH-impact events (risk blackouts)")
+    st.markdown("## Upcoming HIGH-impact events")
     if news.empty:
-        st.info("Run `make news` to pull the current week's ForexFactory calendar.")
+        empty_msg("make news", "ForexFactory HIGH-impact economic events pull into the risk engine blackout schedule.")
     else:
-        pills = ""
+        rows = ""
         for _, n in news.iterrows():
             local = n["starts_at"].tz_convert("America/New_York")
-            pills += (
-                f'<span class="news-pill">'
+            rows += (
+                f'<div class="news-row">'
                 f'<span class="ccy">{n["currency"]}</span>'
-                f'{n["event"]}<span class="time">{local.strftime("%a %m-%d %H:%M ET")}</span>'
-                f"</span>"
+                f'<span class="impact">{n["impact"]}</span>'
+                f'<span class="event">{n["event"]}</span>'
+                f'<span class="time">{local.strftime("%a %b %d · %H:%M ET")}</span>'
+                f'</div>'
             )
-        st.markdown(pills, unsafe_allow_html=True)
+        st.markdown(f'<div style="background:var(--panel); border:1px solid var(--border); border-radius:10px; overflow:hidden;">{rows}</div>', unsafe_allow_html=True)
 
 with tab_trades:
     st.markdown("## Recent trades")
     if trades.empty:
-        st.info("No trades yet. Run a strategy to populate.")
+        empty_msg("python run/run_rsi2_spy.py", "Every trade gets logged here with regime, hour, direction, P&L, exit reason.")
     else:
-        pnl_styled = trades.copy()
-        pnl_styled["pnl"] = pnl_styled["pnl"].apply(
-            lambda x: f"${x:+,.2f}" if pd.notna(x) else "—"
-        )
-        pnl_styled["pnl_pct"] = pnl_styled["pnl_pct"].apply(
-            lambda x: f"{x:+.2%}" if pd.notna(x) else "—"
-        )
-        st.dataframe(pnl_styled, width="stretch", height=420)
+        disp = trades.copy()
+        if "pnl" in disp:
+            disp["pnl"] = disp["pnl"].map(lambda x: f"${x:+,.2f}" if pd.notna(x) else "—")
+        if "pnl_pct" in disp:
+            disp["pnl_pct"] = disp["pnl_pct"].map(lambda x: f"{x:+.2%}" if pd.notna(x) else "—")
+        st.dataframe(disp, width="stretch", height=480, hide_index=True)
+
+with tab_cull:
+    st.markdown("## §9 culling framework")
+    st.markdown(
+        f'<div style="color:{TEXT_DIM}; font-family:Inter; font-size:0.82rem; padding:0 0 12px 0;">'
+        "Month 3 — kill on DD > 8%, flag on Sharpe < 0.5. "
+        "Promote on Sharpe > 1 + win rate > 55% + DD < 5% + ≥20 trades. "
+        "Verdicts are advisory.</div>",
+        unsafe_allow_html=True,
+    )
+    all_time = _performance(window_days=0)
+    if all_time.empty:
+        empty_msg("make nightly", "Culling verdicts appear after the nightly analysis job runs against live trades.")
+    else:
+        from trading_bot.learning.performance import PerformanceMetrics
+        rows = []
+        for _, r in all_time.iterrows():
+            m = PerformanceMetrics(
+                strategy_name=r["strategy"], firm=r["firm"], window_days=0,
+                trade_count=int(r["trades"]), win_rate=r["win_rate"],
+                avg_winner=None, avg_loser=None,
+                profit_factor=r["profit_factor"], expectancy=r["expectancy"],
+                sharpe=r["sharpe"], sortino=r["sortino"],
+                max_drawdown_pct=r["max_dd"], recovery_factor=None,
+                best_day_pnl=r["best_day"], worst_day_pnl=r["worst_day"],
+            )
+            m3 = month_3_decision(m)
+            promo = promotion_decision(m)
+            rows.append({
+                "strategy": m.strategy_name,
+                "month 3": m3.verdict.value,
+                "month 3 reason": m3.reason,
+                "promotion": promo.verdict.value,
+                "promotion reason": promo.reason,
+            })
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
