@@ -1,4 +1,4 @@
-.PHONY: help install test lint fmt clean-apple check setup news dashboard backtest-rsi2 nightly nightly-with-llm run-% db-upgrade db-downgrade
+.PHONY: help install test lint fmt clean-apple check setup news dashboard backtest-rsi2 nightly nightly-with-llm run-% db-upgrade db-downgrade deploy-sync deploy-logs deploy-restart deploy-status
 
 PY := .venv/bin/python
 PIP := .venv/bin/pip
@@ -21,6 +21,12 @@ help:
 	@echo "                run-tinygap, run-bbbtc)"
 	@echo "  db-upgrade    alembic upgrade head"
 	@echo "  db-downgrade  alembic downgrade -1"
+	@echo ""
+	@echo "Deploy to DigitalOcean / any Ubuntu VPS (set HOST=user@ip):"
+	@echo "  deploy-sync     rsync code + pip install + alembic + pm2 reload"
+	@echo "  deploy-status   pm2 list on the droplet"
+	@echo "  deploy-logs     tail pm2 logs (all processes)"
+	@echo "  deploy-restart  restart all pm2 processes on the droplet"
 
 install:
 	python3 -m venv .venv
@@ -85,3 +91,23 @@ run-tinygap:
 
 run-bbbtc:
 	$(PY) run/run_bb_btc_4h.py
+
+# ---- deploy ----
+
+HOST ?=
+
+deploy-sync:
+	@test -n "$(HOST)" || (echo "set HOST=user@ip — e.g. make deploy-sync HOST=trading_bot@165.227.127.162"; exit 1)
+	bash scripts/deploy/sync.sh $(HOST)
+
+deploy-status:
+	@test -n "$(HOST)" || (echo "set HOST=user@ip"; exit 1)
+	ssh $(HOST) "pm2 list"
+
+deploy-logs:
+	@test -n "$(HOST)" || (echo "set HOST=user@ip"; exit 1)
+	ssh $(HOST) "pm2 logs --lines 100"
+
+deploy-restart:
+	@test -n "$(HOST)" || (echo "set HOST=user@ip"; exit 1)
+	ssh $(HOST) "pm2 restart all"
