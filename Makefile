@@ -1,4 +1,4 @@
-.PHONY: help install test lint fmt clean-apple check setup news dashboard run-% db-upgrade db-downgrade
+.PHONY: help install test lint fmt clean-apple check setup news dashboard backtest-rsi2 nightly nightly-with-llm run-% db-upgrade db-downgrade
 
 PY := .venv/bin/python
 PIP := .venv/bin/pip
@@ -13,6 +13,9 @@ help:
 	@echo "  setup         install + db-upgrade + seed accounts"
 	@echo "  clean-apple   remove AppleDouble ._* files from venv + tree"
 	@echo "  news          run scripts/fetch_news_calendar.py (--next for next week too)"
+	@echo "  nightly       scripts/nightly_analysis.py"
+	@echo "  nightly-with-llm  same + LLM post-mortems (needs ANTHROPIC_API_KEY)"
+	@echo "  backtest-rsi2 backtest RSI2_SPY (2024-01-01 through 2026-01-01, Yahoo)"
 	@echo "  dashboard     streamlit on :8501"
 	@echo "  run-rsi2      launch one strategy (also: run-gapfill, run-bbz, run-vwap,"
 	@echo "                run-tinygap, run-bbbtc)"
@@ -46,6 +49,15 @@ setup: install db-upgrade
 
 news:
 	$(PY) scripts/fetch_news_calendar.py --next
+
+nightly:
+	$(PY) scripts/nightly_analysis.py
+
+nightly-with-llm:
+	$(PY) scripts/nightly_analysis.py --llm-post-mortem
+
+backtest-rsi2:
+	$(PY) scripts/backtest.py --strategy RSI2_SPY --start 2024-01-01 --end 2026-01-01
 
 dashboard:
 	.venv/bin/streamlit run src/trading_bot/dashboard/app.py --server.port 8501

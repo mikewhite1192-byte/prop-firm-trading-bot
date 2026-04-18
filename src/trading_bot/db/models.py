@@ -227,6 +227,38 @@ class StrategyPerformanceDaily(Base):
     )
 
 
+class BacktestRun(Base):
+    """Persisted backtest results — the "did this strategy ever work" ledger.
+
+    Every run of scripts/backtest.py appends a row so we can track:
+      * parameter drift (same strategy, different params -> different Sharpe)
+      * data-source drift (Yahoo vs Polygon on the same window)
+      * code drift (re-run after changes, compare to last accepted run)
+    """
+
+    __tablename__ = "backtest_runs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    strategy_name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    data_source: Mapped[str] = mapped_column(String(64), nullable=False)  # yahoo, polygon, etc.
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    end_date: Mapped[date] = mapped_column(Date, nullable=False)
+    budget: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    final_value: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    total_return_pct: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    trade_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    win_rate: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
+    sharpe: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    max_drawdown_pct: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
+    parameters_json: Mapped[str | None] = mapped_column(Text)
+    trades_csv_path: Mapped[str | None] = mapped_column(String(256))
+    tearsheet_path: Mapped[str | None] = mapped_column(String(256))
+    notes: Mapped[str | None] = mapped_column(Text)
+    run_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class DailySummary(Base):
     __tablename__ = "daily_summary"
 

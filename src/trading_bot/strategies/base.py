@@ -61,17 +61,52 @@ class RiskGatedStrategy(Strategy):
     _risk_engine = _risk_engine_singleton
 
     def initialize(self, parameters: dict | None = None) -> None:
+        import os
+
         self._notifier = NotificationDispatcher()
+        self._dry_run = bool(os.environ.get("DRY_RUN"))
+        self._open_trades: dict[str, int] = {}   # broker order id -> trade row id
+
+        if self.is_backtesting:
+            self._account_id = None
+            self._account_sync = None
+            self._stub_account = self._build_stub_account()
+            self.log_message(
+                f"{self.strategy_name} backtest mode | firm={self.firm}"
+            )
+            return
+
         self._account_id = self._resolve_account_id()
         self._account_sync = AccountSync(
             account_id=self._account_id,
             firm=self.firm,
             strategy_name=self.strategy_name,
         )
-        self._open_trades: dict[str, int] = {}   # broker order id -> trade row id
         self._sync_account_state()
+        dry = " [DRY RUN]" if self._dry_run else ""
         self.log_message(
-            f"{self.strategy_name} up | firm={self.firm} account_id={self._account_id}"
+            f"{self.strategy_name} up | firm={self.firm} account_id={self._account_id}{dry}"
+        )
+
+    def _build_stub_account(self) -> Account:
+        """In-backtest Account that never touches the DB."""
+        from trading_bot.db.models import AccountMode, AccountStatus
+
+        initial = Decimal(str(self.portfolio_value or 100_000))
+        return Account(
+            id=0,
+            firm=self.firm,
+            strategy_name=self.strategy_name,
+            account_size=initial,
+            starting_balance=initial,
+            current_balance=initial,
+            peak_balance=initial,
+            current_drawdown_pct=Decimal("0"),
+            daily_pnl=Decimal("0"),
+            weekly_pnl=Decimal("0"),
+            monthly_pnl=Decimal("0"),
+            mode=AccountMode.PAPER,
+            status=AccountStatus.ACTIVE,
         )
 
     def before_starting_trading(self) -> None:
@@ -94,6 +129,12 @@ class RiskGatedStrategy(Strategy):
             return acct.id
 
     def _load_account(self) -> Account:
+        if self.is_backtesting:
+            # Keep the stub account's balance fresh as the backtest runs.
+            self._stub_account.current_balance = Decimal(str(self.portfolio_value or 0))
+            if self._stub_account.current_balance > self._stub_account.peak_balance:
+                self._stub_account.peak_balance = self._stub_account.current_balance
+            return self._stub_account
         with get_session() as s:
             acct = s.get(Account, self._account_id)
             if acct is None:
@@ -102,6 +143,8 @@ class RiskGatedStrategy(Strategy):
             return acct
 
     def _sync_account_state(self) -> Account | None:
+        if self.is_backtesting or self._account_sync is None:
+            return None
         try:
             return self._account_sync.refresh(
                 portfolio_value=float(self.portfolio_value),
@@ -161,20 +204,39 @@ class RiskGatedStrategy(Strategy):
             if take_profit is not None
             else Order.OrderClass.OTO,
         )
+        if self._dry_run:
+            self.log_message(
+                f"DRY RUN {self.strategy_name} {intent.side.value} {intent.quantity} "
+                f"{asset_obj.symbol} @ {intent.entry_price} stop={intent.stop_loss} "
+                f"tp={intent.take_profit} — {reason}",
+                color="yellow",
+            )
+            return None
+
         submitted = self.submit_order(order)
-        self._record_entry(
-            submitted or order,
-            intent,
-            asset_obj,
-            reason,
-            market_regime=market_regime,
-            vix_at_entry=vix_at_entry,
-        )
+        if not self.is_backtesting:
+            self._record_entry(
+                submitted or order,
+                intent,
+                asset_obj,
+                reason,
+                market_regime=market_regime,
+                vix_at_entry=vix_at_entry,
+            )
+        else:
+            self.log_message(
+                f"BACKTEST SUBMIT {self.strategy_name} {intent.side.value} {intent.quantity} "
+                f"{asset_obj.symbol} @ {intent.entry_price} — {reason}",
+                color="green",
+            )
         return submitted
 
     # --- Lumibot lifecycle hooks ---
 
     def on_filled_order(self, position, order, price, quantity, multiplier):
+        if self.is_backtesting:
+            return  # Lumibot's own stats track backtest fills.
+
         identifier = str(getattr(order, "identifier", ""))
         trade_id = self._open_trades.get(identifier)
         if trade_id is not None:
@@ -186,6 +248,8 @@ class RiskGatedStrategy(Strategy):
         self._sync_account_state()
 
     def on_canceled_order(self, order):
+        if self.is_backtesting:
+            return
         identifier = str(getattr(order, "identifier", ""))
         trade_id = self._open_trades.pop(identifier, None)
         if trade_id is not None:
@@ -292,15 +356,16 @@ class RiskGatedStrategy(Strategy):
         if decision.halt_account:
             self._mark_account_halted(hard_stop=decision.hard_stop)
             severity = Severity.CRITICAL if decision.hard_stop else Severity.WARN
-            self._notifier.send(
-                severity,
-                f"{self.firm}/{self.strategy_name} halted",
-                decision.reason,
-            )
-            try:
-                broadcast_halt(self.strategy_name, decision.reason)
-            except Exception as e:
-                log.warning("halt broadcast failed: %s", e)
+            if not self.is_backtesting:
+                self._notifier.send(
+                    severity,
+                    f"{self.firm}/{self.strategy_name} halted",
+                    decision.reason,
+                )
+                try:
+                    broadcast_halt(self.strategy_name, decision.reason)
+                except Exception as e:
+                    log.warning("halt broadcast failed: %s", e)
 
         if decision.hard_stop:
             self.sell_all(cancel_open_orders=True)
@@ -308,6 +373,11 @@ class RiskGatedStrategy(Strategy):
     def _mark_account_halted(self, *, hard_stop: bool) -> None:
         from trading_bot.db.models import AccountStatus
 
+        if self.is_backtesting:
+            self._stub_account.status = (
+                AccountStatus.BLOWN if hard_stop else AccountStatus.HALTED
+            )
+            return
         with get_session() as s:
             acct = s.get(Account, self._account_id)
             if acct is None:

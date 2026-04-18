@@ -16,6 +16,10 @@ from trading_bot.learning.performance import (
     metrics_from_trades,
     snapshot_all,
 )
+from trading_bot.learning.post_mortem import (
+    annotate_recent_trades,
+    generate_trade_postmortem,
+)
 from trading_bot.learning.regime import classify_regime
 
 __all__ = [
@@ -32,4 +36,6 @@ __all__ = [
     "month_6_rank",
     "promotion_decision",
     "classify_regime",
+    "annotate_recent_trades",
+    "generate_trade_postmortem",
 ]

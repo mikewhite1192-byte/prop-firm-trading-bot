@@ -1,5 +1,6 @@
 from trading_bot.db.models import (
     Account,
+    BacktestRun,
     Base,
     DailySummary,
     NewsWindow,
@@ -11,6 +12,7 @@ from trading_bot.db.session import SessionLocal, engine, get_session
 
 __all__ = [
     "Account",
+    "BacktestRun",
     "Base",
     "DailySummary",
     "NewsWindow",

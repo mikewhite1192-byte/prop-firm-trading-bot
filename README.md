@@ -1,6 +1,16 @@
 # Trading Bot
 
-Automated prop firm trading system running 6 mean-reversion strategies on paper accounts before promotion to prop firm challenges. Built on **Lumibot** with a custom **prop-firm risk engine** layered on top. See `tech_spec.docx` for the full specification.
+An automated algorithmic trading system that runs six mean-reversion strategies on paper accounts with the goal of passing prop firm challenges. Built on [Lumibot](https://github.com/Lumiwealth/lumibot) with a custom prop-firm risk engine layered on top. MIT licensed — see `LICENSE`.
+
+> **Not financial advice.** Trading involves substantial risk. Backtest results do not guarantee future performance. This is a research codebase, not investment guidance.
+
+**What's here:**
+- 6 concurrent strategies: RSI(2) SPY, SPY gap fade, EUR/USD BB z-score, ES VWAP ±σ, ES tiny gap fill, BTC BB 4H
+- Prop-firm-aware risk engine enforcing daily loss / drawdown / consistency / news-blackout / EOD-flat / HFT-cap rules per mode (Challenge vs Funded) and per firm (MyFundedFutures / Bulenox / FTMO)
+- Postgres-backed trade log with regime / hour / VIX context for every trade
+- Learning layer: Sharpe / Sortino / profit factor / attribution by regime, hour, DOW, VIX bucket, and spec §9 Month-3 / Month-6 culling verdicts
+- Streamlit dashboard, Telegram + SMTP notifications, pm2 supervisor config
+- 35 unit tests covering indicators, risk engine, and learning module
 
 ## Architecture
 
@@ -124,20 +134,56 @@ Where code was ported from, not written from scratch:
 
 Strategies #2 and #5 have no strong OSS reference and are implemented fresh per spec.
 
-## Phase 1 status
+## Status
+
+### Phase 1 — foundation (done)
 
 - [x] Lumibot foundation + Alpaca/Tradovate native brokers
 - [x] Custom OANDA Lumibot Broker (REST paths; streaming scaffolded)
 - [x] RiskGatedStrategy base; RiskEngine with mode + firm rules
-- [x] 6 strategy classes with indicator computation
+- [x] 6 strategy classes with real indicator math
 - [x] Per-strategy run entrypoints + pm2 supervisor
-- [x] Shared-state coordinator skeleton (Postgres pub/sub)
+- [x] Shared-state coordinator (Postgres pub/sub — halt broadcast, news blackout)
 - [x] DB schema, Alembic, seed script
-- [x] Streamlit dashboard (accounts + recent trades)
+- [x] Streamlit dashboard
 - [x] Telegram + SMTP notifications
-- [x] Risk engine pytest coverage
-- [ ] Phase 2: end-to-end paper round-trip per broker, news calendar, consistency aggregator, streaming OANDA transactions
 
-## Credentials
+### Phase 2 — teeth + telemetry (done)
 
-All broker credentials live in `.env`, loaded via `pydantic-settings`. Never commit `.env`. Never hard-code keys. Alpaca paper account ID for this project: **PA3DHK1KQC03** (still need the API key + secret in `.env`).
+- [x] Risk engine reads live balances via AccountSync; firm rules enforced (EOD, HFT cap, weekend flat)
+- [x] Trade logger hooks persist every fill with regime / hour / VIX context
+- [x] ForexFactory news calendar scraper
+- [x] Indicator module (RSI / ATR / ADX / BB / VWAP) with 15 unit tests
+- [x] Learning layer: Sharpe / Sortino / profit factor / attribution / spec §9 culling
+- [x] Backtest harness (`scripts/backtest.py`) + `backtest_runs` persistence
+- [x] Dry-run mode (`DRY_RUN=1`) for live-looking smoke tests with no orders
+- [x] Optional LLM trade post-mortem via Anthropic Claude
+
+### Phase 3 — before live paper
+
+- [ ] End-to-end paper round-trip on Alpaca (needs keys + Postgres)
+- [ ] Polygon / Databento wiring for intraday backtests of the 5 sub-daily strategies
+- [ ] VIX live feed for stock-strategy context capture
+- [ ] Crash-recovery reconciliation (DB ↔ broker state on restart)
+- [ ] Cross-account hedging enforcement
+
+### Phase 5+ (deferred per spec)
+
+- [ ] Rithmic / NinjaTrader integration (async_rithmic)
+- [ ] MetaTrader 5 / FTMO EA deployment
+- [ ] Auto parameter tuning (Phase 6)
+
+## Credentials + security
+
+All broker credentials live in `.env`, loaded via `pydantic-settings`. `.env` is gitignored — never commit it. Never hard-code keys. `.env.example` documents the full set of expected variables.
+
+If you fork this repo:
+1. Copy `.env.example` to `.env`.
+2. Add your own API keys — the repo ships no creds.
+3. Before pushing any custom changes, `git grep -i 'key\|secret\|token'` to double-check you haven't accidentally inlined anything.
+
+**No live funds in this repo.** All brokers default to paper / demo / simulator endpoints. You have to explicitly change `ALPACA_BASE_URL`, `OANDA_ENVIRONMENT=live`, and `TRADOVATE_ENVIRONMENT=live` to hit real money.
+
+## Contributing
+
+PRs welcome. Run `make test` and `make lint` before opening one. New strategies should subclass `RiskGatedStrategy` so the prop-firm risk engine applies automatically — see `src/trading_bot/strategies/rsi2_spy.py` as a reference.

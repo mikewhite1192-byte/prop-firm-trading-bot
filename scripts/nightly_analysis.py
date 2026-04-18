@@ -23,6 +23,7 @@ import sys
 from datetime import date, datetime, timezone
 
 from trading_bot.learning import (
+    annotate_recent_trades,
     attribute_by_day_of_week,
     attribute_by_hour,
     attribute_by_regime,
@@ -105,6 +106,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--phase", choices=["month3", "month6", "auto"], default="auto")
     ap.add_argument("--skip-attribution", action="store_true")
+    ap.add_argument(
+        "--llm-post-mortem",
+        action="store_true",
+        help="Generate LLM post-mortems for trades closed in the last 24h "
+        "(requires ANTHROPIC_API_KEY and the [llm] extra installed).",
+    )
     args = ap.parse_args()
 
     as_of = datetime.now(timezone.utc).date()
@@ -131,6 +138,11 @@ def main() -> int:
     for m in all_time:
         v = promotion_decision(m)
         log.info("  %-16s %-7s %s", v.strategy_name, v.verdict.value, v.reason)
+
+    if args.llm_post_mortem:
+        log.info("\n--- LLM post-mortems (last 24h) ---")
+        written = annotate_recent_trades(lookback_hours=24)
+        log.info("  %d trades annotated", written)
 
     return 0
 
