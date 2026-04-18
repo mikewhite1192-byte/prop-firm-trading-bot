@@ -23,6 +23,7 @@ from lumibot.entities import Asset
 
 from trading_bot.brokers.base_types import OrderSide
 from trading_bot.indicators import is_stall_candle, session_vwap_sigma
+from trading_bot.learning import classify_regime
 from trading_bot.strategies.base import RiskGatedStrategy
 
 ES_TICK_SIZE = Decimal("0.25")
@@ -114,6 +115,7 @@ class VWAPSigmaES(RiskGatedStrategy):
             stop_loss=stop,
             take_profit=take_profit,
             reason=f"VWAP={vwap.iloc[-1]:.2f} upper={upper.iloc[-1]:.2f} lower={lower.iloc[-1]:.2f}",
+            market_regime=classify_regime(bars.df),
         )
 
     def _maybe_exit_vwap(self, vwap_series: pd.Series | None = None) -> None:

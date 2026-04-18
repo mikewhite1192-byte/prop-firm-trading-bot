@@ -22,6 +22,7 @@ from lumibot.entities import Asset
 
 from trading_bot.brokers.base_types import OrderSide
 from trading_bot.indicators import atr
+from trading_bot.learning import classify_regime
 from trading_bot.strategies.base import RiskGatedStrategy
 
 ES_TICK_SIZE = Decimal("0.25")
@@ -108,6 +109,7 @@ class TinyGapES(RiskGatedStrategy):
             stop_loss=stop,
             take_profit=take_profit,
             reason=f"gap={gap:.2f} ({atr_norm:.2f}xATR), inside prior range",
+            market_regime=classify_regime(daily.df),
         )
         self._entered_today = True
 

@@ -4,6 +4,7 @@ from trading_bot.db.models import (
     DailySummary,
     NewsWindow,
     StrategyDailyPnL,
+    StrategyPerformanceDaily,
     Trade,
 )
 from trading_bot.db.session import SessionLocal, engine, get_session
@@ -14,6 +15,7 @@ __all__ = [
     "DailySummary",
     "NewsWindow",
     "StrategyDailyPnL",
+    "StrategyPerformanceDaily",
     "Trade",
     "SessionLocal",
     "engine",

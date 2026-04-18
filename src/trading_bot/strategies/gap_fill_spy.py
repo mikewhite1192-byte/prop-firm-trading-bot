@@ -21,6 +21,7 @@ import pandas as pd
 from lumibot.entities import Asset
 
 from trading_bot.brokers.base_types import OrderSide
+from trading_bot.learning import classify_regime
 from trading_bot.strategies.base import RiskGatedStrategy
 
 
@@ -113,6 +114,7 @@ class GapFillSPY(RiskGatedStrategy):
             take_profit=take_profit,
             reason=f"gap={gap_pct:.3%} vs SMA({self.parameters['sma_period']}) "
             f"{'>' if prior_close > sma else '<='}",
+            market_regime=classify_regime(daily.df),
         )
         self._entered_today = True
 

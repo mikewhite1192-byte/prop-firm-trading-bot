@@ -189,6 +189,44 @@ class StrategyDailyPnL(Base):
     )
 
 
+class StrategyPerformanceDaily(Base):
+    """Nightly snapshot of the learning layer's rollup per strategy.
+
+    Source of truth is always the ``trades`` table; this is a denormalised
+    cache refreshed by ``scripts/nightly_analysis.py`` so the dashboard and
+    culling logic can read fast without re-aggregating thousands of rows.
+    """
+
+    __tablename__ = "strategy_performance_daily"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    strategy_name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    firm: Mapped[str] = mapped_column(String(64), nullable=False)
+    as_of_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    window_days: Mapped[int] = mapped_column(Integer, nullable=False)  # 30, 90, all
+    trade_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    win_rate: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
+    avg_winner: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    avg_loser: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    profit_factor: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    expectancy: Mapped[Decimal | None] = mapped_column(Numeric(18, 4))
+    sharpe: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    sortino: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    max_drawdown_pct: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
+    recovery_factor: Mapped[Decimal | None] = mapped_column(Numeric(10, 4))
+    best_day_pnl: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    worst_day_pnl: Mapped[Decimal | None] = mapped_column(Numeric(18, 2))
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "strategy_name", "as_of_date", "window_days", name="uq_perf_strategy_date_window"
+        ),
+    )
+
+
 class DailySummary(Base):
     __tablename__ = "daily_summary"
 

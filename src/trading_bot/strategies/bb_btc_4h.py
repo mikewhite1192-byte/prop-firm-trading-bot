@@ -21,6 +21,7 @@ from lumibot.entities import Asset
 
 from trading_bot.brokers.base_types import OrderSide
 from trading_bot.indicators import adx, atr, rsi
+from trading_bot.learning import classify_regime
 from trading_bot.strategies.base import RiskGatedStrategy
 
 
@@ -114,6 +115,7 @@ class BBBTC4H(RiskGatedStrategy):
             stop_loss=stop,
             reason=f"4H close {last4:.2f} < lower BB {lower.iloc[-1]:.2f}, "
             f"RSI={rsi_val:.1f}, ADX={adx_val:.1f}, daily>SMA200",
+            market_regime=classify_regime(h4.df),
         )
 
     def _maybe_scale_exit(self) -> None:

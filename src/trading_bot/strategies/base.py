@@ -29,6 +29,7 @@ from trading_bot.db.models import (
     Account,
     Direction,
     ExitReason,
+    MarketRegime,
     Trade,
     TradeMode,
 )
@@ -122,6 +123,8 @@ class RiskGatedStrategy(Strategy):
         order_type: str = Order.OrderType.MARKET,
         limit_price: Decimal | None = None,
         reason: str = "",
+        market_regime: MarketRegime | None = None,
+        vix_at_entry: Decimal | None = None,
     ) -> Order | None:
         asset_obj = (
             asset
@@ -159,7 +162,14 @@ class RiskGatedStrategy(Strategy):
             else Order.OrderClass.OTO,
         )
         submitted = self.submit_order(order)
-        self._record_entry(submitted or order, intent, asset_obj, reason)
+        self._record_entry(
+            submitted or order,
+            intent,
+            asset_obj,
+            reason,
+            market_regime=market_regime,
+            vix_at_entry=vix_at_entry,
+        )
         return submitted
 
     # --- Lumibot lifecycle hooks ---
@@ -189,6 +199,9 @@ class RiskGatedStrategy(Strategy):
         intent: TradeIntent,
         asset: Asset,
         reason: str,
+        *,
+        market_regime: MarketRegime | None = None,
+        vix_at_entry: Decimal | None = None,
     ) -> None:
         direction = Direction.LONG if intent.side == OrderSide.BUY else Direction.SHORT
         trade_id = TradeLogger.record_entry(
@@ -203,6 +216,8 @@ class RiskGatedStrategy(Strategy):
             take_profit=intent.take_profit,
             mode=TradeMode(intent.account.mode.value),
             broker_order_id=str(getattr(order, "identifier", "")) or None,
+            market_regime=market_regime,
+            vix_at_entry=vix_at_entry,
             notes=reason or None,
         )
         if order is not None and getattr(order, "identifier", None):

@@ -25,6 +25,7 @@ from lumibot.entities import Asset
 
 from trading_bot.brokers.base_types import OrderSide
 from trading_bot.indicators import adx, atr, rsi
+from trading_bot.learning import classify_regime
 from trading_bot.strategies.base import RiskGatedStrategy
 
 
@@ -108,6 +109,7 @@ class BBZScoreEURUSD(RiskGatedStrategy):
             entry_price=entry,
             stop_loss=stop,
             reason=f"z={z.iloc[-1]:.2f} rsi={rsi_series.iloc[-1]:.1f} adx_h4={adx_h4:.1f}",
+            market_regime=classify_regime(h4.df),
         )
 
     def _maybe_exit(self) -> None:
