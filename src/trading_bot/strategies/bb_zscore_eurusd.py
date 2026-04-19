@@ -51,6 +51,7 @@ class BBZScoreEURUSD(RiskGatedStrategy):
     def initialize(self, parameters: dict | None = None) -> None:
         super().initialize(parameters)
         self.sleeptime = "15M"
+        self.set_market("24/5")  # forex runs Sun 5pm ET -> Fri 5pm ET
         self._asset = Asset(symbol=self.parameters["symbol"], asset_type=Asset.AssetType.FOREX)
 
     def on_trading_iteration(self) -> None:

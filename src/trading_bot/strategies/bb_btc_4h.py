@@ -47,6 +47,7 @@ class BBBTC4H(RiskGatedStrategy):
     def initialize(self, parameters: dict | None = None) -> None:
         super().initialize(parameters)
         self.sleeptime = "60M"  # evaluate hourly; entry condition fires on 4H close
+        self.set_market("24/7")  # crypto never closes
         self._asset = Asset(
             symbol=self.parameters["base"],
             asset_type=Asset.AssetType.CRYPTO,

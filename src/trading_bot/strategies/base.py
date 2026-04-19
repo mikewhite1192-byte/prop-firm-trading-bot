@@ -88,6 +88,9 @@ class RiskGatedStrategy(Strategy):
         self.log_message(
             f"{self.strategy_name} up | firm={self.firm} account_id={self._account_id}{dry}"
         )
+        # write a startup heartbeat so the dashboard shows the strategy
+        # is alive even before it ticks (e.g., a weekend NYSE pause).
+        self._heartbeat("initialized")
 
     def _build_stub_account(self) -> Account:
         """In-backtest Account that never touches the DB."""
