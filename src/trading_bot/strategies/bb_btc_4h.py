@@ -57,6 +57,7 @@ class BBBTC4H(RiskGatedStrategy):
         )
 
     def on_trading_iteration(self) -> None:
+        self._heartbeat("tick")
         if self.get_position(self._asset):
             self._maybe_scale_exit()
             return

@@ -54,6 +54,7 @@ class TinyGapES(RiskGatedStrategy):
         self._entered_today = False
 
     def on_trading_iteration(self) -> None:
+        self._heartbeat("tick")
         now_et = self.get_datetime()
         if now_et.time() < dtime(9, 30) or now_et.time() > dtime(9, 35):
             return  # only evaluate in the first ~5 minutes of RTH

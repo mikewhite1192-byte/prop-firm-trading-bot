@@ -50,6 +50,7 @@ class GapFillSPY(RiskGatedStrategy):
         self._entered_today = False
 
     def on_trading_iteration(self) -> None:
+        self._heartbeat("tick")
         now_et = self.get_datetime()
         if now_et.weekday() == 0:  # skip Monday per spec
             return

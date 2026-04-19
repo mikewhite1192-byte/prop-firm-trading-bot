@@ -21,6 +21,7 @@ from trading_bot.db.models import (
     Account,
     BacktestRun,
     NewsWindow,
+    StrategyHeartbeat,
     StrategyPerformanceDaily,
     Trade,
 )
@@ -670,6 +671,24 @@ def _backtest_runs(limit: int = 20) -> pd.DataFrame:
     return pd.DataFrame(data)
 
 
+def _heartbeats() -> pd.DataFrame:
+    with get_session() as s:
+        rows = s.execute(select(StrategyHeartbeat)).scalars().all()
+        data = [
+            {
+                "strategy": h.strategy_name,
+                "firm": h.firm,
+                "last_tick_at": h.last_tick_at,
+                "last_decision": h.last_decision,
+                "iter_today": h.iteration_count_today,
+                "iter_total": h.iterations_total,
+                "sleeptime": h.sleeptime,
+            }
+            for h in rows
+        ]
+    return pd.DataFrame(data)
+
+
 def _news(within: timedelta = timedelta(days=14)) -> pd.DataFrame:
     now = datetime.now(timezone.utc)
     until = now + within
@@ -1124,6 +1143,100 @@ if dormant:
         "</div>",
         unsafe_allow_html=True,
     )
+
+# --- strategy heartbeats ---
+def _sleep_seconds(s: str) -> int:
+    """Convert sleeptime string like '1M', '15M', '1D' to seconds."""
+    s = (s or "").strip().upper()
+    if not s:
+        return 300
+    unit = s[-1]
+    try:
+        n = int(s[:-1]) if len(s) > 1 else 1
+    except ValueError:
+        return 300
+    return {"S": 1, "M": 60, "H": 3600, "D": 86400}.get(unit, 60) * n
+
+
+def _format_age(seconds: float) -> str:
+    if seconds < 60:
+        return f"{int(seconds)}s ago"
+    if seconds < 3600:
+        return f"{int(seconds/60)}m ago"
+    if seconds < 86400:
+        return f"{seconds/3600:.1f}h ago"
+    return f"{seconds/86400:.1f}d ago"
+
+
+hb_df = _heartbeats()
+if not hb_df.empty or accounts:
+    st.markdown("## Strategy heartbeats")
+    st.markdown(
+        f'<div style="color:{TEXT_MUTED}; font-family:Inter; font-size:0.76rem; margin-bottom:10px;">'
+        "Last iteration timestamp per strategy. Green = ticked within 2 × its sleeptime. "
+        "Amber = 2–5 ×. Red = stuck or dead. "
+        "NYSE strategies legitimately stop ticking outside market hours — amber/red is only alarming during open hours."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Merge with accounts to show expected cadence even for strategies that
+    # haven't ticked yet (no DB row).
+    by_name = {h["strategy"]: h for _, h in hb_df.iterrows()} if not hb_df.empty else {}
+    now_utc = datetime.now(timezone.utc)
+    cols = st.columns(max(len(accounts), 1))
+    for col, a in zip(cols, accounts):
+        name = a["strategy"]
+        hb = by_name.get(name)
+        if hb is None:
+            age_s = None
+            age_txt = "never"
+            status_cls = "dot-red"
+            decision = "no heartbeat yet"
+            iters = "0"
+            sleeptime = "?"
+        else:
+            last = hb["last_tick_at"]
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            age_s = (now_utc - last).total_seconds()
+            age_txt = _format_age(age_s)
+            sleeptime = hb["sleeptime"] or "?"
+            expected = _sleep_seconds(sleeptime)
+            if age_s < 2 * expected:
+                status_cls = "dot-green"
+            elif age_s < 5 * expected:
+                status_cls = "dot-amber"
+            else:
+                status_cls = "dot-red"
+            decision = (hb["last_decision"] or "")[:60]
+            iters = f"{hb['iter_today']} today · {hb['iter_total']} total"
+
+        dot_color = {"dot-green": POS, "dot-amber": WARN, "dot-red": NEG}[status_cls]
+        with col:
+            col.markdown(
+                f"""
+                <div class="stat" style="height: 100%;">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">
+                        <span style="display:inline-block; width:9px; height:9px; border-radius:50%;
+                                     background:{dot_color}; box-shadow: 0 0 8px {dot_color}88;
+                                     animation: {'pulse 2.5s ease-in-out infinite' if status_cls == 'dot-green' else 'none'};"></span>
+                        <span class="lbl" style="margin-bottom:0;">{name}</span>
+                    </div>
+                    <div class="big" style="font-size:1.15rem;">{age_txt}</div>
+                    <div class="sub" style="color:{TEXT_DIM}; font-size:0.7rem; margin-top:6px;
+                                            white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"
+                         title="{decision}">
+                        {decision if decision else "&nbsp;"}
+                    </div>
+                    <div style="color:{TEXT_MUTED}; font-size:0.66rem; font-family:Inter; margin-top:6px;">
+                        cadence {sleeptime} · {iters}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
 
 # --- pool exposure per broker ---
 if accounts:

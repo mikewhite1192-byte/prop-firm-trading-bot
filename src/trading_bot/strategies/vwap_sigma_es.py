@@ -54,6 +54,7 @@ class VWAPSigmaES(RiskGatedStrategy):
         self._evaluated_trend_day_for: str | None = None
 
     def on_trading_iteration(self) -> None:
+        self._heartbeat("tick")
         now_et = self.get_datetime()
         rth_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
         elapsed_min = (now_et - rth_open).total_seconds() / 60

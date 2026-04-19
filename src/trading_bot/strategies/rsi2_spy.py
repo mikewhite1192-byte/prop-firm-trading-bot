@@ -44,6 +44,7 @@ class RSI2SPY(RiskGatedStrategy):
         self._asset = Asset(symbol=self.parameters["symbol"], asset_type=Asset.AssetType.STOCK)
 
     def on_trading_iteration(self) -> None:
+        self._heartbeat("tick")
         if self.get_position(self._asset):
             self._maybe_exit()
             return

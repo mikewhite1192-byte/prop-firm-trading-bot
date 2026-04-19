@@ -243,6 +243,31 @@ class StrategyPerformanceDaily(Base):
     )
 
 
+class StrategyHeartbeat(Base):
+    """Per-strategy liveness ping. Updated on every on_trading_iteration so
+    the dashboard can flag a stuck or dead strategy within one expected
+    cadence interval. One row per strategy_name."""
+
+    __tablename__ = "strategy_heartbeats"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer(), "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
+    strategy_name: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    firm: Mapped[str] = mapped_column(String(64), nullable=False)
+    last_tick_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_decision: Mapped[str] = mapped_column(
+        String(128), nullable=False, default="boot"
+    )
+    iteration_count_today: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    iterations_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sleeptime: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+
+
 class BacktestRun(Base):
     """Persisted backtest results — the "did this strategy ever work" ledger.
 

@@ -5,6 +5,7 @@ from trading_bot.db.models import (
     DailySummary,
     NewsWindow,
     StrategyDailyPnL,
+    StrategyHeartbeat,
     StrategyPerformanceDaily,
     Trade,
 )
@@ -17,6 +18,7 @@ __all__ = [
     "DailySummary",
     "NewsWindow",
     "StrategyDailyPnL",
+    "StrategyHeartbeat",
     "StrategyPerformanceDaily",
     "Trade",
     "SessionLocal",

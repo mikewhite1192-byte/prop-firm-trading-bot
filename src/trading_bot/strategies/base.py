@@ -30,6 +30,7 @@ from trading_bot.db.models import (
     Direction,
     ExitReason,
     MarketRegime,
+    StrategyHeartbeat,
     Trade,
     TradeMode,
 )
@@ -112,6 +113,57 @@ class RiskGatedStrategy(Strategy):
     def before_starting_trading(self) -> None:
         # Fresh balance snapshot at market open.
         self._sync_account_state()
+        self._heartbeat("market-open")
+
+    def _heartbeat(self, decision: str = "tick") -> None:
+        """Write a liveness ping to the strategy_heartbeats table.
+
+        Dashboard reads these to detect stuck / dead strategies. Call at the
+        top of every ``on_trading_iteration`` so the last_tick_at stays
+        within one sleeptime interval.
+        """
+        from sqlalchemy import select
+
+        from trading_bot.db.session import get_session
+
+        now = datetime.now(timezone.utc)
+        sleeptime = getattr(self, "sleeptime", "")
+        if not isinstance(sleeptime, str):
+            sleeptime = str(sleeptime)
+        try:
+            with get_session() as s:
+                hb = s.execute(
+                    select(StrategyHeartbeat).where(
+                        StrategyHeartbeat.strategy_name == self.strategy_name
+                    )
+                ).scalar_one_or_none()
+                if hb is None:
+                    s.add(
+                        StrategyHeartbeat(
+                            strategy_name=self.strategy_name,
+                            firm=self.firm,
+                            last_tick_at=now,
+                            last_decision=decision[:128],
+                            iteration_count_today=1,
+                            iterations_total=1,
+                            sleeptime=sleeptime,
+                        )
+                    )
+                else:
+                    # Reset today's counter at UTC midnight.
+                    last = hb.last_tick_at
+                    if last is None or last.astimezone(timezone.utc).date() != now.date():
+                        hb.iteration_count_today = 1
+                    else:
+                        hb.iteration_count_today += 1
+                    hb.iterations_total += 1
+                    hb.last_tick_at = now
+                    hb.last_decision = decision[:128]
+                    hb.firm = self.firm
+                    hb.sleeptime = sleeptime
+        except Exception as e:
+            # Never let heartbeat writes block a trading iteration.
+            log.debug("heartbeat write failed: %s", e)
 
     def _resolve_account_id(self) -> int:
         with get_session() as s:
@@ -200,6 +252,7 @@ class RiskGatedStrategy(Strategy):
         decision = self._risk_engine.evaluate(intent)
         if not decision.approved:
             self._handle_rejection(intent, decision)
+            self._heartbeat(f"rejected: {decision.reason[:80]}")
             return None
 
         order = self.create_order(
@@ -224,6 +277,7 @@ class RiskGatedStrategy(Strategy):
             return None
 
         submitted = self.submit_order(order)
+        self._heartbeat(f"submitted {asset_obj.symbol} {side.value} {intent.quantity}")
         if not self.is_backtesting:
             self._record_entry(
                 submitted or order,
