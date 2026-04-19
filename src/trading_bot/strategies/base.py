@@ -164,9 +164,18 @@ class RiskGatedStrategy(Strategy):
                     hb.last_decision = decision[:128]
                     hb.firm = self.firm
                     hb.sleeptime = sleeptime
+            # Success — log via Lumibot's logger so it surfaces in pm2.
+            try:
+                self.log_message(f"heartbeat: {decision}", color="blue")
+            except Exception:
+                pass
         except Exception as e:
-            # Never let heartbeat writes block a trading iteration.
-            log.debug("heartbeat write failed: %s", e)
+            # Never block trading. Surface via Lumibot's logger so we can see it.
+            msg = f"heartbeat write failed for {self.strategy_name}: {type(e).__name__}: {e}"
+            try:
+                self.log_message(msg, color="red")
+            except Exception:
+                log.warning(msg)
 
     def _resolve_account_id(self) -> int:
         with get_session() as s:
