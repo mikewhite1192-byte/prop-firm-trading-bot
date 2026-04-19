@@ -27,6 +27,7 @@ from trading_bot.db.models import (
 from trading_bot.db.session import get_session
 from trading_bot.dashboard.live_feeds import (
     fetch_alpaca_balance,
+    fetch_broker_balances,
     fetch_headlines,
     fetch_markets,
     market_tile,
@@ -928,27 +929,14 @@ if headlines:
     st.markdown(news_tape_html(headlines), unsafe_allow_html=True)
 
 # --- ticker strip ---
-alpaca_acct = fetch_alpaca_balance()
+broker_balances = fetch_broker_balances()
+
+# Pretty labels for tiles
+_BROKER_LABELS = {"Alpaca_Paper": "ALPACA", "OANDA_Demo": "OANDA", "Tradovate_Sim": "TRADOVATE"}
 
 def _ticker() -> str:
-    # Prefer the REAL Alpaca balance for NAV; fall back to DB nominals.
-    if alpaca_acct and alpaca_acct.get("equity"):
-        real_nav = alpaca_acct["equity"]
-        day_delta = real_nav - (alpaca_acct.get("last_equity") or real_nav)
-        day_ret = day_delta / alpaca_acct["last_equity"] if alpaca_acct.get("last_equity") else 0
-        nav_label = "ALPACA NAV"
-        nav_sub = f"{day_ret:+.2%}"
-    else:
-        real_nav = sum(a["balance"] for a in accounts)
-        day_delta = sum(a["daily_pnl"] for a in accounts)
-        total_start = sum(a["starting_balance"] for a in accounts)
-        day_ret = (real_nav - total_start) / total_start if total_start else 0
-        nav_label = "NAV (NOMINAL)"
-        nav_sub = f"{day_ret:+.2%}"
-
     nominal_alloc = sum(a["starting_balance"] for a in accounts)
     weekly_pnl = sum(a["weekly_pnl"] for a in accounts)
-    daily_pnl_nominal = sum(a["daily_pnl"] for a in accounts)
     active = sum(1 for a in accounts if a["status"] == "ACTIVE")
     halted = sum(1 for a in accounts if a["status"] in ("HALTED", "BLOWN"))
     max_dd = max((a["drawdown_pct"] for a in accounts), default=0)
@@ -956,13 +944,27 @@ def _ticker() -> str:
     def cls(v):
         return "pos" if v > 0 else "neg" if v < 0 else "zero"
 
+    # Per-broker NAV tiles (one for each configured broker)
+    broker_tiles = ""
+    total_day_delta = 0.0
+    for firm, acct in broker_balances.items():
+        eq = acct.get("equity") or 0
+        last = acct.get("last_equity") or eq
+        delta = eq - last
+        total_day_delta += delta
+        ret = delta / last if last else 0
+        label = _BROKER_LABELS.get(firm, firm.upper())
+        broker_tiles += (
+            f'<div class="tick"><span class="lbl">{label}</span>'
+            f'<span class="val">${eq:,.0f}</span>'
+            f'<span class="val {cls(delta)}">{ret:+.2%}</span></div>'
+        )
+
     return f"""
     <div class="ticker">
-        <div class="tick"><span class="lbl">{nav_label}</span>
-            <span class="val">${real_nav:,.0f}</span>
-            <span class="val {cls(day_delta)}">{nav_sub}</span></div>
+        {broker_tiles}
         <div class="tick"><span class="lbl">DAY P&L</span>
-            <span class="val {cls(day_delta)}">${day_delta:+,.2f}</span></div>
+            <span class="val {cls(total_day_delta)}">${total_day_delta:+,.2f}</span></div>
         <div class="tick"><span class="lbl">NOMINAL ALLOC</span>
             <span class="val">${nominal_alloc:,.0f}</span>
             <span class="val" style="color:var(--text-muted); font-size:0.66rem;">
@@ -980,16 +982,22 @@ def _ticker() -> str:
 
 st.markdown(_ticker(), unsafe_allow_html=True)
 
-# Explainer line under ticker the first time you see it.
-if alpaca_acct:
+# Explainer line showing real accounts.
+if broker_balances:
+    lines = []
+    for firm, acct in broker_balances.items():
+        strats = [a for a in accounts if a["firm"] == firm]
+        label = _BROKER_LABELS.get(firm, firm)
+        lines.append(
+            f'<strong style="color:{TEXT_DIM};">{label}</strong> ${acct["equity"]:,.0f} '
+            f'real · {len(strats)} strateg{"y" if len(strats)==1 else "ies"} · '
+            f'BP ${acct["buying_power"]:,.0f}'
+        )
     st.markdown(
         f'<div style="font-family:Inter; font-size:0.72rem; color:{TEXT_MUTED}; '
         f'margin-top:6px; letter-spacing:0.04em;">'
-        f'Alpaca paper account <code style="color:{TEXT_DIM};">{alpaca_acct.get("account_number","")}</code> '
-        f'· <strong style="color:{TEXT_DIM};">${alpaca_acct["equity"]:,.2f}</strong> real balance, '
-        f'shared across {len(accounts)} strategies · '
-        f'buying power <strong style="color:{TEXT_DIM};">${alpaca_acct["buying_power"]:,.0f}</strong>'
-        f'</div>',
+        + " &nbsp;·&nbsp; ".join(lines)
+        + "</div>",
         unsafe_allow_html=True,
     )
 

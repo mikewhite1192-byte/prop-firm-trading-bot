@@ -44,6 +44,29 @@ MARKET_SYMBOLS: dict[str, str] = {
 
 
 @st.cache_data(ttl=30, show_spinner=False)
+def fetch_broker_balances() -> dict[str, dict]:
+    """Pull live equity from every broker whose creds are configured.
+
+    Returns e.g.:
+        {"Alpaca_Paper": {"equity": 100000, "buying_power": 200000, ...},
+         "OANDA_Demo":  {"equity": 100000, "buying_power": 100000, ...}}
+    """
+    out: dict[str, dict] = {}
+    alp = fetch_alpaca_balance()
+    if alp:
+        out["Alpaca_Paper"] = alp
+    try:
+        from trading_bot.brokers.balances import fetch_oanda_balance
+
+        oan = fetch_oanda_balance()
+        if oan:
+            out["OANDA_Demo"] = oan
+    except Exception:
+        pass
+    return out
+
+
+@st.cache_data(ttl=30, show_spinner=False)
 def fetch_alpaca_balance() -> dict | None:
     """Pull the real Alpaca paper-account balance.
 
