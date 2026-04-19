@@ -150,6 +150,17 @@ class OandaDataSource(DataSource):
             return None
         return float(bars.df["close"].iloc[-1])
 
+    # DataSource abstracts — none of these apply to OANDA forex, but must exist.
+    def get_chains(self, asset: Asset, quote: Asset | None = None, exchange: str | None = None):
+        raise NotImplementedError("OANDA does not support options chains")
+
+    def get_strikes(self, asset: Asset, quote: Asset | None = None):
+        raise NotImplementedError("OANDA does not support options chains")
+
+    def get_quote(self, asset: Asset, quote: Asset | None = None):
+        last = self.get_last_price(asset, quote=quote)
+        return {"last": last, "bid": last, "ask": last} if last is not None else None
+
 
 class OandaBroker(Broker):
     """Lumibot broker bound to an OANDA v20 demo or live account."""
