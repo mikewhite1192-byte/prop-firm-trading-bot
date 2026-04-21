@@ -167,7 +167,13 @@ class OandaBroker(Broker):
 
     NAME = "OANDA"
 
-    def __init__(self, connect_stream: bool = False, max_workers: int = 10, **kwargs) -> None:
+    def __init__(
+        self,
+        connect_stream: bool = False,
+        max_workers: int = 10,
+        market: str = "24/5",
+        **kwargs,
+    ) -> None:
         s = get_settings()
         if not s.oanda_api_token or not s.oanda_account_id:
             raise RuntimeError("OANDA credentials missing in .env (OANDA_API_TOKEN / OANDA_ACCOUNT_ID)")
@@ -175,9 +181,12 @@ class OandaBroker(Broker):
         self._api = API(access_token=s.oanda_api_token, environment=s.oanda_environment)
         self._account_id = s.oanda_account_id
         data_source = OandaDataSource(self._api, self._account_id)
+        # Broker.__init__ reads config["MARKET"] to decide trading-hours
+        # scheduling. Forex = 24/5.
         super().__init__(
             name=self.NAME,
             data_source=data_source,
+            config={"MARKET": market},
             connect_stream=connect_stream,
             max_workers=max_workers,
             **kwargs,

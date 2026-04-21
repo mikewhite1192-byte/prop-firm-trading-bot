@@ -5,7 +5,8 @@ from trading_bot.strategies.bb_btc_4h import BBBTC4H
 
 
 def main() -> None:
-    run_single(BBBTC4H, make_alpaca_broker(paper=True))
+    # Alpaca broker scoped to 24/7 so Lumibot doesn't sleep BTC at NYSE close.
+    run_single(BBBTC4H, make_alpaca_broker(paper=True, market="24/7"))
 
 
 if __name__ == "__main__":
