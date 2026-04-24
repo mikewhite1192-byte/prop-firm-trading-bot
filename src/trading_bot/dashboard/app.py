@@ -16,6 +16,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 from sqlalchemy import select
+from streamlit_autorefresh import st_autorefresh
 
 from trading_bot.db.models import (
     Account,
@@ -69,6 +70,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+
+st_autorefresh(interval=15_000, key="desk_tick")
 
 # ---- brand palette -------------------------------------------------------
 
