@@ -93,22 +93,36 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e '.[dev]'
 
 cp .env.example .env
-# Fill ALPACA_API_KEY, ALPACA_API_SECRET, OANDA_*, TRADOVATE_*, DATABASE_URL
+# Fill the broker creds you actually plan to use
+# (ALPACA_API_KEY/SECRET, OANDA_API_TOKEN/ACCOUNT_ID, TRADOVATE_*).
+# DATABASE_URL defaults to sqlite:///./trading_bot.db for single-box setups.
 
 alembic revision --autogenerate -m "baseline schema"
 alembic upgrade head
 python scripts/init_db.py                 # seed 6 paper accounts
 
-# Dry-run one strategy manually
-python run/run_rsi2_spy.py
+# Dry-run one strategy manually (PYTHONPATH makes `run._common` importable)
+PYTHONPATH=. python run/run_rsi2_spy.py
 
-# Run all 6 under pm2
+# Run all 6 under pm2 (PYTHONPATH is wired into ecosystem.config.js)
 npm i -g pm2   # if not already
 pm2 start ecosystem.config.js
 pm2 logs
+
+# Or start only the strategies whose brokers you've configured.
+# Missing creds cause a crashloop, so skip those apps:
+pm2 start ecosystem.config.js --only rsi2_spy,gap_fill_spy,bb_btc_4h,bb_zscore_eurusd,dashboard
 ```
 
-Streamlit dashboard runs on port 8501 under the same pm2 config.
+Streamlit dashboard runs on port 8501 under the same pm2 config and auto-refreshes every 15 s.
+
+## Operational notes
+
+**Daily NYSE restart.** `rsi2_spy` and `gap_fill_spy` have `cron_restart: "25 9 * * 1-5"` in `ecosystem.config.js`. Lumibot's sleep-until-market-open branch can hang overnight for NYSE-scoped strategies and fail to wake at 9:30 ET, so pm2 force-restarts them 5 minutes before the bell and the strategies initialize straight into the active loop. The cron is interpreted in system local time, so make sure the host is set to `America/New_York` (or adjust the cron). 24/7 (crypto) and 24/5 (forex) strategies are unaffected and run continuously.
+
+**Logs.** pm2 writes per-strategy logs to `~/.pm2/logs/<name>-out.log` and `<name>-error.log`. The dashboard keeps its own logs at `logs/dashboard.{out,err}.log`. Strategy-level CSV / parquet artifacts (indicators, trades, tearsheets) land in `logs/` and `logs/backtests/`.
+
+**What's running.** `pm2 list` shows process health; `pm2 logs <name>` tails a single app. The `strategy_heartbeats` table in the DB records every iteration with `last_tick_at`, `last_decision`, and `iteration_count_today`, so you can verify a strategy is evaluating even when no trade has fired.
 
 ## Two operating modes
 
