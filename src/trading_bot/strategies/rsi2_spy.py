@@ -69,6 +69,10 @@ class RSI2SPY(RiskGatedStrategy):
             stop = entry - Decimal(str(atr_val * self.parameters["atr_stop_multiple"]))
             qty = self._position_size(entry, stop)
             if qty > 0:
+                # Alpaca rejects bracket orders with sub-penny prices.
+                penny = Decimal("0.01")
+                entry = entry.quantize(penny)
+                stop = stop.quantize(penny)
                 self.propose_entry(
                     asset=self._asset,
                     side=OrderSide.BUY,

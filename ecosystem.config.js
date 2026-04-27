@@ -14,11 +14,13 @@ const shared = {
   merge_logs: true,
 };
 
-// Daily kick at 9:25 ET Mon-Fri for NYSE strategies — Lumibot's
-// sleep-until-market-open branch can hang overnight; restarting 5 min
-// before the bell forces a clean re-init straight into market hours.
+// Daily kick at 9:35 ET Mon-Fri for NYSE strategies. Lumibot's
+// sleep-until-market-open branch hangs overnight, AND its pre-market
+// startup path crashes with `'Alpaca' object has no attribute
+// 'process_pending_orders'`. Restarting 5 min after the bell sidesteps
+// both, so the strategy initializes straight into the active loop.
 // Assumes system TZ is America/New_York.
-const nyseDailyKick = { cron_restart: "25 9 * * 1-5" };
+const nyseDailyKick = { cron_restart: "35 9 * * 1-5" };
 
 module.exports = {
   apps: [

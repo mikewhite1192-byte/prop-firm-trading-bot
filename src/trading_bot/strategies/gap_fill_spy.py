@@ -106,6 +106,12 @@ class GapFillSPY(RiskGatedStrategy):
         if qty <= 0:
             return
 
+        # Alpaca rejects bracket orders with sub-penny prices.
+        penny = Decimal("0.01")
+        entry = entry.quantize(penny)
+        stop = stop.quantize(penny)
+        take_profit = take_profit.quantize(penny)
+
         self.propose_entry(
             asset=self._asset,
             side=fade_side,
