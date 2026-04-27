@@ -16,6 +16,18 @@ from lumibot.traders import Trader
 from trading_bot.brokers.oanda_lumibot import OandaBroker
 from trading_bot.config import get_settings
 
+# Lumibot 4.4.62 bug: Alpaca._await_market_to_close() (alpaca.py:378)
+# calls self.process_pending_orders(), which only exists on
+# BacktestingBroker. This crashes the strategy loop on every session
+# boundary (after-close, pre-market, startup outside market hours).
+# Stack: strategy_executor._run_trading_session -> strategy.await_market_to_close
+# -> broker._await_market_to_close -> self.process_pending_orders.
+# Add a no-op on Alpaca (live order fills come through the websocket
+# stream and don't need this hook). Apply unconditionally so a future
+# Lumibot release that adds a real method on Broker doesn't silently
+# leave the broken Alpaca path in place. Drop when Lumibot upstream fixes.
+Alpaca.process_pending_orders = lambda self, strategy=None: None
+
 
 def _configure_logging() -> None:
     settings = get_settings()

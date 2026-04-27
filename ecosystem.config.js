@@ -14,18 +14,10 @@ const shared = {
   merge_logs: true,
 };
 
-// Daily kick at 9:35 ET Mon-Fri for NYSE strategies. Lumibot's
-// sleep-until-market-open branch hangs overnight, AND its pre-market
-// startup path crashes with `'Alpaca' object has no attribute
-// 'process_pending_orders'`. Restarting 5 min after the bell sidesteps
-// both, so the strategy initializes straight into the active loop.
-// Assumes system TZ is America/New_York.
-const nyseDailyKick = { cron_restart: "35 9 * * 1-5" };
-
 module.exports = {
   apps: [
-    { name: "rsi2_spy",        script: "run/run_rsi2_spy.py",        ...shared, ...nyseDailyKick },
-    { name: "gap_fill_spy",    script: "run/run_gap_fill_spy.py",    ...shared, ...nyseDailyKick },
+    { name: "rsi2_spy",        script: "run/run_rsi2_spy.py",        ...shared },
+    { name: "gap_fill_spy",    script: "run/run_gap_fill_spy.py",    ...shared },
     { name: "bb_zscore_eurusd",script: "run/run_bb_zscore_eurusd.py",...shared },
     { name: "vwap_sigma_es",   script: "run/run_vwap_sigma_es.py",   ...shared },
     { name: "tiny_gap_es",     script: "run/run_tiny_gap_es.py",     ...shared },
