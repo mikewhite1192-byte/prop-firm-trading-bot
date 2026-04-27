@@ -289,10 +289,35 @@ class RiskGatedStrategy(Strategy):
             return None
 
         submitted = self.submit_order(order)
+        recorded_order = submitted or order
+
+        # Brokers (e.g. Alpaca) don't raise on rejection; they call
+        # order.set_error() and return the order with status="error" or
+        # leave it "unprocessed". Persisting on those states produced
+        # phantom trade rows the broker had no record of.
+        broker_rejected = (
+            recorded_order is None
+            or str(getattr(recorded_order, "status", "")).lower()
+            in (Order.OrderStatus.ERROR, Order.OrderStatus.UNPROCESSED)
+        )
+        if broker_rejected:
+            status = getattr(recorded_order, "status", "no-response")
+            error_msg = getattr(recorded_order, "error_message", None) or getattr(
+                recorded_order, "error", None
+            )
+            self.log_message(
+                f"REJECTED {self.strategy_name} {intent.side.value} "
+                f"{intent.quantity} {asset_obj.symbol}: status={status} "
+                f"err={error_msg}",
+                color="red",
+            )
+            self._heartbeat(f"broker-rejected: {status}")
+            return None
+
         self._heartbeat(f"submitted {asset_obj.symbol} {side.value} {intent.quantity}")
         if not self.is_backtesting:
             self._record_entry(
-                submitted or order,
+                recorded_order,
                 intent,
                 asset_obj,
                 reason,
